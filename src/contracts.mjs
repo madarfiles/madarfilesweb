@@ -8,7 +8,7 @@ export const RUNTIME=/^runtimes\/madarweb-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[
 export const TASKS=['separate','asr','burn','translate','convert','resize','download','ocr','cutout','word','imagegen','videogen'];
 export const LANGS=['auto','ar','en','ja','fr','es','de','tr','ko','zh','ur'];
 export function cleanName(name){return String(name||'ملف').normalize('NFC').replace(/[\u0000-\u001f\u007f<>:"/\\|?*\u202a-\u202e\u2066-\u2069]/g,'_').slice(0,100)||'ملف';}
-export function outputName(source,ext,task){const suffix={separate:'بدون-موسيقى',asr:'مفرغ',burn:'مكتوب',translate:'مترجم',convert:'محول',resize:'معدل-المقاس',cutout:'بدون-خلفية',ocr:'النص',word:'وورد'}[task]||'نتيجة';return cleanName(source).replace(/\.[^.]+$/,'')+'-'+suffix+'.'+ext;}
+export function outputName(source,ext,task){const suffix={frame:'لقطة',mute:'صامت',audio:'معدل-الصوت',image:'معدل',pdf:'مرتب',imagepdf:'صور',subtitle:'توقيت',original:'أصلي',separate:'بدون-موسيقى',asr:'مفرغ',burn:'مكتوب',translate:'مترجم',convert:'محول',resize:'معدل-المقاس',cutout:'بدون-خلفية',ocr:'النص',word:'وورد'}[task]||'نتيجة';return cleanName(source).replace(/\.[^.]+$/,'')+'-'+suffix+'.'+ext;}
 function must(ok,msg='إعدادات العملية غير صالحة'){if(!ok)throw new SafeError(msg);}
 const text=(v,max=1500)=>typeof v==='string'&&v.length<=max;
 const num=(v,a,b)=>Number.isFinite(v)&&v>=a&&v<=b;

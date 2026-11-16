@@ -1,4 +1,4 @@
-import hashlib,importlib.util,json,shutil,subprocess,tempfile,types,unittest
+import base64,hashlib,importlib.util,io,json,shutil,subprocess,sys,tempfile,types,unittest
 from pathlib import Path
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('worker',Path(__file__).parents[1]/'colab/worker.py')
@@ -47,4 +47,22 @@ class WorkerTests(unittest.TestCase):
    silent=root/'silent.mp4';subprocess.run(['ffmpeg','-v','error','-y','-i',str(source),'-an','-c:v','copy',str(silent)],check=True)
    with self.assertRaises(m.MediaError) as error:m.audio_source(silent)
    self.assertEqual(error.exception.code,'MEDIA_NO_AUDIO')
+   from PIL import Image
+   png=io.BytesIO();Image.new('RGBA',(10,10),(255,0,0,255)).save(png,format='PNG')
+   cfg={'style':{'x':50,'y':90,'size':4,'color':'#ffffff','font':'sans','weight':700},'logo':'data:image/png;base64,'+base64.b64encode(png.getvalue()).decode(),'logoX':5,'logoY':5,'logoSize':15}
+   with patch.object(m,'encoder',return_value=['-c:v','libx264','-preset','veryfast','-crf','23','-pix_fmt','yuv420p']):
+    out=m.burn(source,'1\n00:00:00,000 --> 00:00:01,000\nسلام',cfg,root)
+   self.assertGreaterEqual(float(m.probe(out)['format']['duration']),.3)
+
+ def test_asr_falls_back_to_gpu_transformers_when_first_engine_cannot_load(self):
+  fake_cuda=types.SimpleNamespace(is_available=lambda:True,empty_cache=lambda:None)
+  fake_torch=types.SimpleNamespace(cuda=fake_cuda,float16='float16')
+  def fail(*args,**kw):raise ImportError('synthetic binary mismatch private-source')
+  model=types.SimpleNamespace(to=lambda device:types.SimpleNamespace())
+  processor=types.SimpleNamespace(tokenizer=object(),feature_extractor=object())
+  transformers=types.SimpleNamespace(AutoModelForSpeechSeq2Seq=types.SimpleNamespace(from_pretrained=lambda *a,**k:model),AutoProcessor=types.SimpleNamespace(from_pretrained=lambda *a,**k:processor),pipeline=lambda *a,**k:lambda *x,**kw:{'chunks':[{'timestamp':(0,1),'text':'سلام'}]})
+  modules={'torch':fake_torch,'onnxruntime':types.SimpleNamespace(),'faster_whisper':types.SimpleNamespace(WhisperModel=fail),'transformers':transformers}
+  with tempfile.TemporaryDirectory() as d,patch.dict(sys.modules,modules),patch.object(m,'audio_source'),patch.object(m,'probe',return_value={'format':{'duration':'1.5'}}):
+   root=Path(d);out=m.captions(root/'source.mp4',{'language':'ar','operation':'transcribe','target':'ar'},root,lambda *a,**k:None)
+   self.assertTrue(out.is_file());self.assertIn('سلام',(root/'original.srt').read_text())
 if __name__=='__main__':unittest.main()

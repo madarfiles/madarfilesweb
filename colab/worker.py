@@ -170,9 +170,7 @@ def ass_text(text,style,w,h):
   if idx is None:continue
   match=re.search(r'(\d{1,3}:\d\d:\d\d[,.]\d{3})\s*-->\s*(\d{1,3}:\d\d:\d\d[,.]\d{3})',rows[idx])
   if not match:continue
-  safe='\\N'.join(rows[idx+1:]).replace('\\','\\').replace('{','').replace('}','')
-  # Neutralize ASS override commands while keeping only our explicit line breaks.
-  safe='\\N'.join(re.sub(r'\\[A-Za-z][^\s]*','',row).replace('{','').replace('}','') for row in rows[idx+1:])
+  safe='\\N'.join(re.sub(r'\{[^}]*\}','',row).replace('\\','＼').replace('{','').replace('}','') for row in rows[idx+1:])
   pos='{\\pos(%d,%d)}'%(w*style['x']/100,h*style['y']/100)
   header+='Dialogue: 0,%s,%s,Default,,0,0,0,,%s%s\n'%(clock(match[1]),clock(match[2]),pos,safe)
  return header
@@ -189,7 +187,7 @@ def burn(source,text,cfg,root):
   raw=base64.b64decode(cfg['logo'].split(',',1)[1],validate=True)
   image=Image.open(io.BytesIO(raw))
   if image.format!='PNG' or image.width*image.height>16000000:raise ValueError('صورة الشعار غير صالحة')
-  logo=root/'logo.png';image.save(logo);width=max(2,round(w*cfg['logoSize']/100));args+=['-i',logo]
+  logo=root/'logo.png';image.save(logo);width=max(2,round(w*cfg['logoSize']/100));args+=['-loop','1','-i',logo]
   x=w*cfg['logoX']/100;y=h*cfg['logoY']/100
   filters=['-filter_complex',"[0:v]%s[v];[1:v]scale=%d:-1[l];[v][l]overlay=%.1f:%.1f:shortest=1[out]"%(style,width,x,y),'-map','[out]','-map','0:a:0?']
  target=root/'result.mp4';codec=encoder()
@@ -207,20 +205,44 @@ def zip_files(root,paths):
 def captions(source,cfg,root,report):
  audio_source(source);report('processing','تفريغ الكلام وحفظ توقيته')
  import torch
- import onnxruntime as ort
- if hasattr(ort,'preload_dlls'):ort.preload_dlls(directory='')
- from faster_whisper import WhisperModel
- model=WhisperModel('large-v3-turbo',device='cuda',compute_type='float16',download_root=str(BASE/'cache/whisper'))
- try:segments,info=model.transcribe(str(source),language=None if cfg['language']=='auto' else cfg['language'],vad_filter=True)
- except Exception:segments,info=model.transcribe(str(source),language=None if cfg['language']=='auto' else cfg['language'],vad_filter=False)
- rows=[{'start':s.start,'end':s.end,'text':s.text} for s in segments]
+ if not torch.cuda.is_available():raise RuntimeError('GPU_REQUIRED')
+ model=None
+ try:
+  import onnxruntime as ort
+  if hasattr(ort,'preload_dlls'):ort.preload_dlls(directory='')
+  from faster_whisper import WhisperModel
+  model=WhisperModel('large-v3-turbo',device='cuda',compute_type='float16',download_root=str(BASE/'cache/whisper'))
+  def transcribe(vad):
+   segments,info=model.transcribe(str(source),language=None if cfg['language']=='auto' else cfg['language'],vad_filter=vad)
+   return [{'start':s.start,'end':s.end,'text':s.text} for s in segments],info.language
+  try:rows,detected=transcribe(True)
+  except Exception:rows,detected=transcribe(False)
+ except (ImportError,OSError,RuntimeError,ValueError):
+  del model;model=None;gc.collect();torch.cuda.empty_cache()
+  report('processing','استخدام محرك تفريغ GPU بديل بعد تعذر توافق المحرك الأول')
+  from transformers import pipeline,AutoModelForSpeechSeq2Seq,AutoProcessor
+  name='openai/whisper-large-v3-turbo'
+  model=AutoModelForSpeechSeq2Seq.from_pretrained(name,torch_dtype=torch.float16,low_cpu_mem_usage=False,use_safetensors=True,trust_remote_code=False).to('cuda')
+  processor=AutoProcessor.from_pretrained(name,trust_remote_code=False)
+  pipe=pipeline('automatic-speech-recognition',model=model,tokenizer=processor.tokenizer,feature_extractor=processor.feature_extractor,torch_dtype=torch.float16,device=0,chunk_length_s=30,batch_size=1,return_timestamps=True)
+  kw={} if cfg['language']=='auto' else {'language':cfg['language']}
+  data=pipe(str(source),generate_kwargs=kw);total=float(probe(source)['format']['duration'])
+  rows=[]
+  for c in data.get('chunks',[]):
+   start,end=c.get('timestamp',(None,None))
+   if start is None:start=rows[-1]['end'] if rows else 0
+   if end is None:end=total
+   if math.isfinite(float(start)) and math.isfinite(float(end)) and 0<=start<end<=total+1 and c.get('text','').strip():rows.append({'start':start,'end':min(end,total),'text':c['text']})
+  # Language must be explicit for translating when the fallback cannot report detection.
+  detected=cfg['language']
+  del pipe
  if not rows:raise ValueError('لم يتم العثور على كلام واضح في المصدر')
  original=srt(rows);p=root/'original.srt';p.write_text(original,encoding='utf-8');t=root/'transcript.txt';t.write_text('\n'.join(s['text'] for s in rows),encoding='utf-8')
  rendered=original;files=[p,t];del model;gc.collect()
  import torch
  torch.cuda.empty_cache()
  if 'Translate' in cfg['operation']:
-  source_lang=cfg['language'] if cfg['language']!='auto' else info.language
+  source_lang=cfg['language'] if cfg['language']!='auto' else detected
   if source_lang not in LANG:raise ValueError('لغة المصدر المكتشفة غير مدعومة للترجمة')
   report('processing','ترجمة النص مع الحفاظ على توقيت الأسطر')
   rendered=translated_srt(original,source_lang,cfg['target']);p=root/'translated.srt';p.write_text(rendered,encoding='utf-8');files.append(p)
