@@ -1,0 +1,53 @@
+name: Build and verify MadarFiles Web
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: madar-verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install FFmpeg for real output tests
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - name: Install exact direct dependency versions
+        run: npm install --ignore-scripts
+      - name: Install esbuild binary
+        run: node node_modules/esbuild/install.js
+      - name: Build static assets and embedded Colab source
+        run: npm run build
+      - name: Syntax checks
+        run: npm run check && python -m py_compile colab/worker.py
+      - name: JavaScript tests, including real WASM encoding
+        run: node --test --test-concurrency=1 tests/*.test.mjs
+      - name: Python tests, including 13 real FFmpeg export containers
+        run: python -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Audit installed production dependencies
+        run: npm audit --omit=dev --audit-level=moderate
+      - name: Bundle modern Netlify function
+        run: npx --yes netlify-cli@27.19.0 functions:build
+      - name: Source archive for review
+        run: git archive --format=zip --output=MadarFiles-Web-Source.zip HEAD
+      - name: Upload build and full source
+        uses: actions/upload-artifact@v4
+        with:
+          name: MadarFiles-Web-Source-and-Build
+          path: |
+            MadarFiles-Web-Source.zip
+            dist/
+            generated/
+            .netlify/functions/
+          retention-days: 30

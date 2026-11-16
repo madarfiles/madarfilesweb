@@ -1,0 +1,14 @@
+# MadarFiles Web development
+- This is the web project, not the Android app. Preserve the live Netlify deployment until a release is explicitly requested.
+- Never store owner Google tokens, Groq keys, service-account JSON or private source-store credentials.
+- Provider authorization is always the visitor's own. Client identity headers grant nothing. Keep same-origin checks, fixed upstreams, HTTPS runtime verification, per-grant cache keys, UUID checks, payload limits and checksums.
+- Never silently replace L4/T4 with A100 or confuse system RAM with VRAM. Never close active or unknown-activity runtimes to make room.
+- Enable NVENC only after an actual successful encoding probe, not nvidia-smi alone.
+- Preserve original inputs, source-name download suffixes, cached verified parts, completed stems and safe diagnostics without raw stderr or file content.
+- Never disable or weaken generation content review, or auto-regenerate to bypass it.
+- No generated music; video generation is silent. Mute removes all audio, separation is a distinct tool.
+- Keep mobile RTL, type-specific pickers, sticky previews, exact placement controls, and safe local-only presets.
+- Isolate Python package stacks per task; never blindly upgrade torch or mix incompatible loaded transformers/diffusers versions.
+- Run build, syntax checks, Node tests and Python tests. Synthetic provider and CPU tests do not certify OAuth/GPU or model quality.
+- A requirement-based rebuild is not a byte-for-byte restoration of source 3127c1f.
+- Implement processing end to end; do not hide missing core logic behind finished-looking buttons.
