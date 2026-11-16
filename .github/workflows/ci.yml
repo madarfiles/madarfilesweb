@@ -23,8 +23,8 @@ jobs:
           python-version: '3.12'
       - name: Install FFmpeg for real output tests
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Install exact direct dependency versions
-        run: npm install --ignore-scripts
+      - name: Install the reviewed lockfile exactly
+        run: npm ci --ignore-scripts
       - name: Install esbuild binary
         run: node node_modules/esbuild/install.js
       - name: Install image fixture dependency
