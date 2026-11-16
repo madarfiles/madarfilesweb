@@ -40,7 +40,7 @@ jobs:
       - name: Audit installed production dependencies
         run: npm audit --omit=dev --audit-level=moderate
       - name: Bundle modern Netlify function
-        run: npx --yes netlify-cli@27.19.0 functions:build
+        run: npx --yes netlify-cli@27.19.0 functions:build --src netlify/functions --functions .netlify/functions
       - name: Source archive for review
         run: git archive --format=zip --output=MadarFiles-Web-Source.zip HEAD
       - name: Upload build and full source
