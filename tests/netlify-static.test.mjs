@@ -1,0 +1,20 @@
+import test from'node:test';import assert from'node:assert/strict';import{readFile}from'node:fs/promises';import vm from'node:vm';import{netlifySecurity,netlifyStaticHeaders,renderServiceWorker,FFMPEG_CORE_VERSION}from'../src/netlify-static.js';
+const headers=JSON.parse(await readFile(new URL('../src/headers.json',import.meta.url),'utf8')),ORIGIN='https://madar.test';
+test('Netlify: no third-party framing, API stays no-store, engine cached immutably, pages revalidate',async()=>{const sec=netlifySecurity(headers);assert.match(sec['Content-Security-Policy'],/frame-ancestors 'none'/);assert.doesNotMatch(sec['Content-Security-Policy'],/chatgpt/);assert.equal(sec['Cache-Control'],'private, no-store');
+const h=netlifyStaticHeaders(headers);assert.doesNotMatch(h.split('\n/\n')[0],/Cache-Control|chatgpt/);assert.match(h,/\/runtime\/\*\n  Cache-Control: public, max-age=31536000, immutable/);for(const p of['/index.html','/app.js','/sw.js'])assert(h.includes(p+'\n  Cache-Control: no-cache'));
+const api=await readFile(new URL('../netlify/functions/api.mjs',import.meta.url),'utf8');assert.match(api,/netlifySecurity\(headers\)/);
+const tools=await readFile(new URL('../src/extra-tools.js',import.meta.url),'utf8');assert.equal(tools.split('ffmpeg-core.wasm?v='+FFMPEG_CORE_VERSION).length-1,2);assert.equal(tools.split('ffmpeg-core.js?v='+FFMPEG_CORE_VERSION).length-1,2);
+const pkg=JSON.parse(await readFile(new URL('../node_modules/@ffmpeg/core/package.json',import.meta.url),'utf8'));assert.equal(pkg.version,FFMPEG_CORE_VERSION);});
+async function worker(network){const stores=new Map(),listeners={};const key=r=>new URL(typeof r==='string'?r:r.url,ORIGIN).pathname;const open=async name=>{if(!stores.has(name))stores.set(name,new Map());const m=stores.get(name);return{addAll:async list=>{for(const p of list)m.set(key(p),new Response('shell '+p));},put:async(r,res)=>{m.set(key(r),res);},match:async r=>m.get(key(r))?.clone()};};
+const self={location:new URL(ORIGIN),clients:{claim:async()=>{}},skipWaiting:async()=>{},addEventListener:(t,f)=>listeners[t]=f};
+vm.runInNewContext(renderServiceWorker(await readFile(new URL('../src/sw.js',import.meta.url),'utf8'),'0123456789abcdef',['/','/app.js']),{self,caches:{open,keys:async()=>[...stores.keys()],delete:async k=>stores.delete(k)},fetch:network,URL,Response,Promise,JSON});
+const run=async(type,extra={})=>{let p;listeners[type]({...extra,waitUntil:x=>p=x,respondWith:x=>p=x});return{handled:!!p,value:await p};};return{stores,run};}
+const get=(path,mode='cors')=>({method:'GET',url:ORIGIN+path,mode});
+test('service worker: API untouched, versioned engine works offline, page falls back, other pages never overwrite the home page',async()=>{let online=true,calls=0;const w=await worker(async r=>{calls++;if(!online)throw TypeError('offline');return new Response('net '+new URL(r.url).pathname);});
+w.stores.set('madar-shell-old',new Map());await w.run('install');await w.run('activate');assert(!w.stores.has('madar-shell-old'));
+assert.equal((await w.run('fetch',{request:get('/api/colab/status')})).handled,false);assert.equal((await w.run('fetch',{request:{...get('/api/x'),method:'POST'}})).handled,false);
+assert.equal((await w.run('fetch',{request:get('/runtime/ffmpeg-core.wasm')})).handled,false,'unversioned engine requests are not pinned');
+const engine='/runtime/ffmpeg-core.wasm?v='+FFMPEG_CORE_VERSION;assert.equal(await (await w.run('fetch',{request:get(engine)})).value.text(),'net /runtime/ffmpeg-core.wasm');
+await w.run('fetch',{request:get('/licenses','navigate')});
+online=false;const before=calls;assert.equal(await (await w.run('fetch',{request:get(engine)})).value.text(),'net /runtime/ffmpeg-core.wasm');assert.equal(calls,before+0);
+assert.equal(await (await w.run('fetch',{request:get('/','navigate')})).value.text(),'shell /');assert.equal(await (await w.run('fetch',{request:get('/elsewhere','navigate')})).value.text(),'shell /');assert.equal(await (await w.run('fetch',{request:get('/app.js')})).value.text(),'shell /app.js');});
