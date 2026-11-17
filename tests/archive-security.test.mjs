@@ -1,0 +1,11 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {zipSync,strToU8} from 'fflate';
+import {archivePreviews} from '../src/result-preview.js';
+const make=()=>zipSync({'original.srt':strToU8('1\n00:00:00,000 --> 00:00:01,000\nمرحبا'),'video.mp4':new Uint8Array([0,1])});
+const center=b=>{const v=new DataView(b.buffer);return v.getUint32(b.length-6,true);};
+test('valid subtitle archives retain their Arabic preview',()=>{const out=archivePreviews(make());assert.equal(out.length,1);assert.match(out[0].text,/مرحبا/);});
+test('malformed ZIP64 size sentinels are rejected before decompression',()=>{for(const offset of [20,24,42]){const b=make();new DataView(b.buffer).setUint32(center(b)+offset,0xffffffff,true);assert.throws(()=>archivePreviews(b),/ملف مضغوط/);}});
+test('corrupt and truncated archive headers cannot loop or allocate from their declared sizes',()=>{const b=make();assert.throws(()=>archivePreviews(b.subarray(0,b.length-4)));new DataView(b.buffer).setUint32(b.length-10,0xffffffff,true);assert.throws(()=>archivePreviews(b));});
+test('encrypted, multipart and excessive-entry archives are rejected',()=>{for(const change of [b=>new DataView(b.buffer).setUint16(center(b)+8,1,true),b=>new DataView(b.buffer).setUint16(b.length-18,1,true),b=>{const v=new DataView(b.buffer);v.setUint16(b.length-14,257,true);v.setUint16(b.length-12,257,true);}]){const b=make();change(b);assert.throws(()=>archivePreviews(b));}});
+test('preview decompression budget blocks large expanded text',()=>{const b=zipSync({'large.txt':new Uint8Array(2*1048576+1)});assert.throws(()=>archivePreviews(b),/حد القراءة/);});

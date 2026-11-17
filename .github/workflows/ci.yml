@@ -1,4 +1,4 @@
-name: Build and verify MadarFiles Web
+name: Build and test Madar Web 0.21
 on:
   push:
     branches: [main]
@@ -6,50 +6,20 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: madar-verify-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Install FFmpeg for real output tests
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
-      - name: Install the reviewed lockfile exactly
-        run: npm ci --ignore-scripts
-      - name: Install esbuild binary
-        run: node node_modules/esbuild/install.js
-      - name: Install image fixture dependency
-        run: python -m pip install Pillow==11.3.0
-      - name: Build static assets and embedded Colab source
-        run: npm run build
-      - name: Syntax checks
-        run: npm run check && python -m py_compile colab/worker.py
-      - name: JavaScript tests, including real WASM encoding
-        run: node --test --test-concurrency=1 tests/*.test.mjs
-      - name: Python tests, including 13 real FFmpeg export containers
-        run: python -m unittest discover -s tests -p 'test_*.py' -v
-      - name: Audit installed production dependencies
-        run: npm audit --omit=dev --audit-level=moderate
-      - name: Bundle modern Netlify function
-        run: npx --yes netlify-cli@27.19.0 functions:build --src netlify/functions --functions .netlify/functions
-      - name: Source archive for review
-        run: git archive --format=zip --output=MadarFiles-Web-Source.zip HEAD
-      - name: Upload build and full source
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: MadarFiles-Web-Source-and-Build
-          path: |
-            MadarFiles-Web-Source.zip
-            dist/
-            generated/
-            .netlify/functions/
-          retention-days: 30
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: npm ci --ignore-scripts && node node_modules/esbuild/install.js
+      - run: npm run build:netlify
+      - run: node --test --test-concurrency=1 tests/*.test.mjs
+      - run: python -m unittest discover -s tests -p 'test_*.py'

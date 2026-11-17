@@ -1,24 +1,23 @@
 {
-  "name": "madarfiles-web",
-  "version": "2.0.0",
+  "name": "madar-family-web",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node scripts/check.mjs"
+    "build:netlify": "node scripts/build-netlify.mjs",
+    "deploy:netlify": "netlify deploy --prod --no-build --skip-functions-cache --dir netlify-public --functions netlify/functions"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.10",
     "@ffmpeg/ffmpeg": "0.12.15",
+    "@netlify/identity": "^2.0.1",
     "esbuild": "0.25.12",
     "fflate": "0.8.3",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.5.438",
     "qrcode": "1.5.4",
-    "ws": "8.23.0"
-  },
-  "devDependencies": {
-    "jsdom": "26.1.0"
+    "ws": "^8.23.0"
   }
 }

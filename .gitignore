@@ -1,7 +1,13 @@
 node_modules/
 dist/
-.netlify/
-generated/
-.env*
+site.tar.gz
+.env
+.env.*
+!.env.example
 __pycache__/
 *.pyc
+
+*.log
+
+.netlify/
+netlify-public/

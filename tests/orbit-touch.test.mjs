@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mountOrbit} from '../src/orbit-tools.js';
+test('touch enter and released focus do not freeze the orbit; mouse hover and keyboard still pause',()=>{
+ const original={};for(const key of ['document','matchMedia','ResizeObserver','requestAnimationFrame','cancelAnimationFrame'])original[key]=globalThis[key];let tick,hoverCapable=false;
+ class Element{constructor(){this.style={};this.dataset={};this.events={};this.children=[];this.clientWidth=390;}setAttribute(){}append(...x){this.children.push(...x);}replaceChildren(...x){this.children=x;}addEventListener(type,fn){(this.events[type]||=[]).push(fn);}getClientRects(){return[{}];}setPointerCapture(){}fire(type,data={}){for(const fn of this.events[type]||[])fn(data);}}
+ const elements=new Map(),root=new Element();root.querySelector=s=>{if(!elements.has(s))elements.set(s,new Element());return elements.get(s);};globalThis.document={hidden:false,createElement:()=>new Element(),querySelector:()=>null};globalThis.matchMedia=q=>({matches:q.includes('hover')?hoverCapable:false});globalThis.ResizeObserver=class{constructor(fn){this.fn=fn;}observe(){this.fn();}disconnect(){}};globalThis.requestAnimationFrame=fn=>{tick=fn;return 1;};globalThis.cancelAnimationFrame=()=>{};
+ try{const orbit=mountOrbit(root,{icon:()=>'',onOpen:()=>{},onPick:()=>{}});orbit.setTools([{id:'x',title:'x',desc:'x',cat:'image',icon:'image'}]);const stage=elements.get('.tools-orbit'),button=elements.get('.orbit-nodes').children[0];tick(32);tick(64);let position=button.style.transform;
+ stage.fire('pointerenter',{pointerType:'touch'});tick(96);assert.notEqual(button.style.transform,position);position=button.style.transform;
+ stage.fire('pointerdown',{pointerType:'touch',clientX:10,clientY:10});tick(128);assert.equal(button.style.transform,position);stage.fire('pointerup');tick(160);assert.notEqual(button.style.transform,position);
+ hoverCapable=true;stage.fire('pointerenter',{pointerType:'mouse'});position=button.style.transform;tick(192);assert.equal(button.style.transform,position);stage.fire('pointerleave');tick(224);assert.notEqual(button.style.transform,position);
+ stage.fire('keydown',{key:'Tab'});position=button.style.transform;tick(256);assert.equal(button.style.transform,position);stage.fire('focusout');tick(288);assert.notEqual(button.style.transform,position);orbit.dispose();
+ }finally{for(const [key,value] of Object.entries(original)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}}
+});

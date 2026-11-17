@@ -1,9 +1,13 @@
 [build]
-command = "npm run build"
-publish = "dist"
-functions = "netlify/functions"
+  command = "npm run build:netlify"
+  publish = "netlify-public"
+  functions = "netlify/functions"
 [build.environment]
-NODE_VERSION = "24"
+  NODE_VERSION = "24"
 [functions]
-node_bundler = "esbuild"
-external_node_modules = ["ws"]
+  node_bundler = "esbuild"
+  external_node_modules = ["ws", "@netlify/identity"]
+[[redirects]]
+  from = "/licenses"
+  to = "/licenses.html"
+  status = 200
