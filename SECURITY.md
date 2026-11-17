@@ -5,9 +5,9 @@ Only fixed provider APIs are proxied. Jupyter URLs/proxy credentials come from G
 
 Source and result chunks are bounded and checksummed. Fixed filenames sit under validated UUID job folders. No arbitrary Python or shell code is accepted by the HTTP API. The worker has a service lock, job startup lock, serial queue and sanitized diagnostics.
 
-Static/API headers are configured separately. No permissive CORS is emitted. Archive previews reject ZIP64/multipart/encrypted layouts and bound expanded text. User file names and text go to DOM text/value/canvas, not HTML insertion.
+Static/API headers are configured separately: the API is private no-store; the versioned FFmpeg engine under /runtime/<version>/ is cached immutably, pages and scripts revalidate, and framing by any other site is denied. No permissive CORS is emitted. Archive previews reject ZIP64/multipart/encrypted layouts and bound expanded text. User file names and text go to DOM text/value/canvas, not HTML insertion.
 
-Direct dependencies are pinned and audited; this reconstruction initially resolves transitive dependencies at installation, so a reviewed lockfile is still needed. Models, apt packages and Python dependencies are external supply-chain risks not covered by npm audit.
+Direct dependencies are pinned and audited, and package-lock.json pins every transitive dependency; CI installs it with npm ci. Models, apt packages and Python dependencies are external supply-chain risks not covered by npm audit.
 
 Do not put private media or tokens into public GitHub Issues. Contact the owner by an agreed private channel. No support email is embedded or report sent automatically.
 
