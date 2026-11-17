@@ -124,7 +124,8 @@ def main():
         else:
             status('setup', 'تثبيت مكتبات الفصل على Colab؛ أول تشغيل قد يستغرق عدة دقائق')
             if not _SEPARATION_READY:
-                subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet', 'audio-separator[gpu]==0.48.0', 'onnxruntime-gpu[cuda,cudnn]==1.23.2', 'numpy==2.2.6', 'numba==0.61.2', 'nvidia-cublas-cu12>=12,<13'], check=True, timeout=600)
+                from madar_colab_runtime import install_once, SEPARATION_PIP
+                install_once('separation', SEPARATION_PIP)
                 _SEPARATION_READY = True
             status('gpu', 'تحميل النموذج واختبار CUDA فعليًا')
             import madar_colab_runtime as runtime

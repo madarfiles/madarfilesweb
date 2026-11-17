@@ -2,7 +2,7 @@
 import gc, json, os, signal, subprocess, sys, time, threading
 from pathlib import Path
 BASE=Path(__file__).resolve().parent
-VERSION=14
+VERSION=15
 
 def atomic(path,data):
  tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(data,ensure_ascii=False));tmp.replace(path)
@@ -30,13 +30,32 @@ def bootstrap():
   code='WORKER_LAUNCH_'+type(exc).__name__.upper()
   for root in pending:atomic(root/'state.json',{'state':'error','message':'تعذر إطلاق عامل الأداة داخل Colab · '+code,'code':code,'updated':time.time()})
 
+def environment():
+ os.environ['USE_TF']='0';os.environ['USE_FLAX']='0';os.environ['HF_HUB_ETAG_TIMEOUT']='60';os.environ['HF_HUB_DOWNLOAD_TIMEOUT']='120';os.environ['TOKENIZERS_PARALLELISM']='false'
+ os.environ['HF_HOME']=str(BASE/'cache/huggingface');os.environ['U2NET_HOME']=str(BASE/'cache/rembg');os.environ['XDG_CACHE_HOME']=str(BASE/'cache')
+
+def warm(tool):
+ """Installs a tool's libraries and downloads its model files while the file uploads.
+ One preparation per tool and session; it never touches the GPU or a job."""
+ import fcntl
+ lock=open(BASE/('warm-'+tool+'.lock'),'a')
+ try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ except BlockingIOError:return
+ if (BASE/('warm-'+tool+'.json')).exists():return
+ environment();sys.path.insert(0,str(BASE))
+ started=time.time()
+ try:
+  import madar_cloud_tasks
+  done=madar_cloud_tasks.warm(tool)
+ except BaseException as exc:done=['failed:'+type(exc).__name__]
+ atomic(BASE/('warm-'+tool+'.json'),{'tool':tool,'steps':done,'seconds':round(time.time()-started,1),'finished':time.time()})
+
 def serve():
  import fcntl
  lock=open(BASE/'service.lock','a')
  try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
  except BlockingIOError:return
- os.environ['USE_TF']='0';os.environ['USE_FLAX']='0';os.environ['HF_HUB_ETAG_TIMEOUT']='60';os.environ['HF_HUB_DOWNLOAD_TIMEOUT']='120';os.environ['TOKENIZERS_PARALLELISM']='false'
- os.environ['HF_HOME']=str(BASE/'cache/huggingface');os.environ['U2NET_HOME']=str(BASE/'cache/rembg');os.environ['XDG_CACHE_HOME']=str(BASE/'cache')
+ environment()
  idle=time.monotonic();last_task=None;health={'version':VERSION,'pid':os.getpid(),'idleMinutes':40,'activeJob':None}
  done=threading.Event()
  def heartbeat():
@@ -80,4 +99,5 @@ def serve():
 
 if __name__=='__main__':
  if len(sys.argv)>1 and sys.argv[1]=='serve':serve()
+ elif len(sys.argv)>2 and sys.argv[1]=='warm' and sys.argv[2] in {'separate','dub','asr','translate'}:warm(sys.argv[2])
  else:bootstrap()

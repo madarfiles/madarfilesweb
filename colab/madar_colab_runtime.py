@@ -1,7 +1,7 @@
 """Madar GPU separation, run interactively inside the user's own Colab notebook.
 No tunnel, web server, remote-control endpoint or account credential is created.
 """
-import gc, hashlib, json, logging, math, shutil, subprocess, time
+import gc, hashlib, json, logging, math, shutil, subprocess, sys, time
 from functools import lru_cache
 from pathlib import Path
 
@@ -13,6 +13,29 @@ DUB_MODEL = 'UVR-MDX-NET-Inst_HQ_4.onnx'
 ROOT = Path('/content/madar_separation')
 CACHE = Path('/content/madar_models')
 CHUNK_SECONDS = 300
+SEPARATION_PIP = [['install', '--quiet', 'audio-separator[gpu]==0.48.0', 'onnxruntime-gpu[cuda,cudnn]==1.23.2', 'numpy==2.2.6', 'numba==0.61.2', 'nvidia-cublas-cu12>=12,<13']]
+SETUP_DIR = Path(__file__).resolve().parent/'setup'
+
+
+def install_once(key, commands, timeout=600):
+    """Runs the pip commands for `key` once per Colab session. A shared lock lets the early
+    preparation (started while the file uploads) and the job itself use the same install:
+    whichever comes second waits for the first and then skips it. Returns True if it installed."""
+    import fcntl
+    SETUP_DIR.mkdir(parents=True, exist_ok=True)
+    tag = hashlib.sha256(json.dumps(commands).encode()).hexdigest()[:16]
+    marker = SETUP_DIR/(key+'.ok')
+    def ready():
+        try: return marker.read_text() == tag
+        except OSError: return False
+    if ready(): return False
+    with open(SETUP_DIR/'pip.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if ready(): return False
+        for command in commands:
+            subprocess.run([sys.executable, '-m', 'pip', *command], check=True, timeout=timeout)
+        marker.write_text(tag)
+    return True
 
 
 def chunk_plan(total, start=0, duration=0, chunk_seconds=CHUNK_SECONDS):
@@ -341,19 +364,35 @@ def run_separation(source, start=0, duration=0, mode='audio', output_format=None
         gc.collect()
 
 
-def group_dub_words(words, gap=0.35, max_len=6.0, pad_start=0.05, pad_end=0.12):
-    """Turns Whisper word timings into dubbing lines. A new line starts at a pause, after a
-    sentence end, or when Whisper started a new segment after a short gap (often a new
-    speaker); long lines are split at their widest pause. Cuts always fall between words."""
-    words = [w for w in words if str(w.get('w', '')).strip() and w.get('e', 0) > w.get('s', 0)]
+SENTENCE_END = ('.', '?', '!', '؟', '…', '。', '!', '؛')
+
+
+def _ends_sentence(word):
+    return str(word.get('w', '')).rstrip().rstrip('"\'»)').endswith(SENTENCE_END)
+
+
+def group_dub_words(words, sounds=(), long_gap=2.0, max_len=20.0, pause_mark=0.7, attach=0.6, pad_start=0.05, pad_end=0.12):
+    """Turns Whisper word timings into dubbing lines that a performer can say in one breath.
+    A line is a whole sentence of one speaker: it ends at a sentence end, when the speaker
+    changes ('spk' on the words, from voice embeddings), or at a very long silence. Short
+    pauses inside a sentence never cut it, so «وأنا | أمك» stays one line. Only a line longer
+    than max_len is split, preferring sentence ends, then Whisper segments, then the widest pause.
+    sounds: [{'s','e','label'}] — laughs, hums, sighs… found where the voice track has sound but
+    Whisper wrote no word. Each joins the nearest line as «(ضحكة)», or becomes its own line.
+    Long silences inside a line show as «…» so the performer knows to wait."""
+    words = sorted((w for w in words if str(w.get('w', '')).strip() and w.get('e', 0) > w.get('s', 0)), key=lambda w: w['s'])
+    known = any(w.get('spk') is not None for w in words)
     lines, cur = [], []
     def close():
         if cur: lines.append(list(cur)); cur.clear()
-    for i, w in enumerate(words):
+    for w in words:
         if cur:
             prev = cur[-1]; pause = w['s'] - prev['e']
-            ends = str(prev['w']).rstrip().endswith(('.', '?', '!', '؟', '…', '。'))
-            if pause >= gap or (ends and pause >= 0.08) or (w.get('seg') != prev.get('seg') and pause >= 0.15):
+            turn = known and w.get('spk') is not None and prev.get('spk') is not None and w['spk'] != prev['spk']
+            # Without speaker labels a new Whisper segment after a real breath is the best
+            # remaining hint of a new sentence or speaker.
+            segment = w.get('seg') != prev.get('seg') and pause >= (0.3 if known else 0.15)
+            if turn or pause >= long_gap or (_ends_sentence(prev) and pause >= 0.08) or segment:
                 close()
         cur.append(w)
     close()
@@ -361,19 +400,228 @@ def group_dub_words(words, gap=0.35, max_len=6.0, pad_start=0.05, pad_end=0.12):
     def split(chunk):
         if chunk[-1]['e'] - chunk[0]['s'] <= max_len or len(chunk) < 2:
             out.append(chunk); return
-        # Widest pause wins; among equal pauses (fluent speech) the cut nearest the middle.
         middle = (chunk[0]['s'] + chunk[-1]['e']) / 2
-        k = max(range(1, len(chunk)), key=lambda j: (round(chunk[j]['s'] - chunk[j-1]['e'], 1), -abs(chunk[j]['s'] - middle)))
+        def score(j):
+            prev, nxt = chunk[j-1], chunk[j]
+            return (_ends_sentence(prev), prev.get('seg') != nxt.get('seg'), round(nxt['s'] - prev['e'], 1), -abs(nxt['s'] - middle))
+        k = max(range(1, len(chunk)), key=score)
         split(chunk[:k]); split(chunk[k:])
+    if not known:
+        max_len = min(max_len, 8.0)
     for chunk in lines: split(chunk)
+    # Non-speech sounds join the closest line (inside it or within `attach` seconds of it).
+    extra = []
+    for snd in sorted(sounds or [], key=lambda x: x['s']):
+        if not (snd.get('e', 0) > snd.get('s', 0) and str(snd.get('label', '')).strip()):
+            continue
+        item = {'w': '(' + str(snd['label']).strip() + ')', 's': snd['s'], 'e': snd['e'], 'k': 'sound'}
+        best, gap = None, attach
+        for chunk in out:
+            d = max(0.0, chunk[0]['s'] - snd['e'], snd['s'] - chunk[-1]['e'])
+            if d <= gap:
+                best, gap = chunk, d
+        if best is None:
+            extra.append([item])
+        else:
+            best.append(item); best.sort(key=lambda x: x['s'])
+    out = sorted(out + extra, key=lambda c: c[0]['s'])
     result = []
     for chunk in out:
+        items = []
+        for w in chunk:
+            if items and w.get('k') is None and items[-1].get('k') is None and w['s'] - items[-1]['e'] >= pause_mark:
+                items.append({'w': '…', 's': round(items[-1]['e'], 2), 'e': round(w['s'], 2), 'k': 'pause'})
+            items.append(w)
         start = max(0.0, chunk[0]['s'] - pad_start); end = chunk[-1]['e'] + pad_end
         if result and start < result[-1]['end']:
-            mid = round((result[-1]['words'][-1]['e'] + chunk[0]['s']) / 2, 2); result[-1]['end'] = mid; start = mid
-        result.append({'start': round(start, 2), 'end': round(end, 2), 'text': ' '.join(str(w['w']).strip() for w in chunk),
-                       'words': [{'w': str(w['w']).strip(), 's': round(w['s'], 2), 'e': round(w['e'], 2)} for w in chunk]})
+            mid = round((result[-1]['words'][-1]['e'] + chunk[0]['s']) / 2, 2); result[-1]['end'] = max(mid, result[-1]['words'][-1]['e']); start = result[-1]['end']
+        line = {'start': round(start, 2), 'end': round(max(end, start + 0.2), 2), 'text': ' '.join(str(w['w']).strip() for w in items),
+                'say': ' '.join(str(w['w']).strip() for w in items if w.get('k') is None),
+                'words': [{'w': str(w['w']).strip(), 's': round(w['s'], 2), 'e': round(w['e'], 2), **({'k': w['k']} if w.get('k') else {})} for w in items]}
+        voices = [w['spk'] for w in chunk if w.get('spk') is not None]
+        if voices:
+            line['spk'] = max(set(voices), key=voices.count)
+        result.append(line)
     return result
+
+
+def speech_units(words, gap=0.2):
+    """Groups words into short stretches of continuous speech: the pieces whose voices are
+    compared to tell speakers apart. Returns lists of word indexes."""
+    units, cur = [], []
+    for i, w in enumerate(words):
+        if cur:
+            prev = words[cur[-1]]
+            if w['s'] - prev['e'] >= gap or w.get('seg') != prev.get('seg') or _ends_sentence(prev):
+                units.append(cur); cur = []
+        cur.append(i)
+    if cur: units.append(cur)
+    return units
+
+
+def cluster_speakers(vectors, threshold=0.8):
+    """Average-linkage clustering of voice embeddings by cosine similarity. Entries that are
+    None (pieces too short to judge) get None. Labels are numbered by first appearance."""
+    import numpy as np
+    idx = [i for i, v in enumerate(vectors) if v is not None]
+    labels = [None] * len(vectors)
+    if not idx:
+        return labels
+    x = np.array([np.asarray(vectors[i], dtype=np.float64) for i in idx])
+    x /= np.maximum(np.linalg.norm(x, axis=1, keepdims=True), 1e-9)
+    if len(idx) == 1:
+        raw = [0]
+    else:
+        try:
+            from scipy.cluster.hierarchy import linkage, fcluster
+            raw = list(fcluster(linkage(x, method='average', metric='cosine'), t=1 - threshold, criterion='distance'))
+        except ImportError:
+            raw = _average_linkage(x, threshold)
+    order = {}
+    for i, g in zip(idx, raw):
+        labels[i] = order.setdefault(g, len(order) + 1)
+    return labels
+
+
+def _average_linkage(x, threshold):
+    import numpy as np
+    total = x @ x.T; np.fill_diagonal(total, 0.0)
+    groups = {i: [i] for i in range(len(x))}
+    while len(groups) > 1:
+        keys = list(groups)
+        sizes = np.array([len(groups[k]) for k in keys], dtype=np.float64)
+        sub = total[np.ix_(keys, keys)] / np.outer(sizes, sizes)
+        np.fill_diagonal(sub, -np.inf)
+        a, b = np.unravel_index(int(np.argmax(sub)), sub.shape)
+        if sub[a, b] < threshold:
+            break
+        ga, gb = keys[a], keys[b]
+        total[ga, :] += total[gb, :]; total[:, ga] += total[:, gb]; total[ga, ga] = 0.0
+        groups[ga] += groups.pop(gb)
+    raw = [0] * len(x)
+    for g, members in groups.items():
+        for m in members: raw[m] = g
+    return raw
+
+
+def speech_windows(words, units, win=1.2, hop=0.4, min_len=0.45):
+    """Short overlapping windows over each unit, so a speaker change inside continuous speech
+    (Whisper's word times often hide the gap between two people) can still be found.
+    Returns [(unit index, start, end)]."""
+    out = []
+    for u, unit in enumerate(units):
+        a, b = words[unit[0]]['s'] - 0.05, words[unit[-1]]['e'] + 0.05
+        if b - a < min_len:
+            continue
+        if b - a <= win + hop / 2:
+            out.append((u, a, b)); continue
+        t = a
+        while t + win < b:
+            out.append((u, t, t + win)); t += hop
+        out.append((u, b - win, b))
+    return out
+
+
+def assign_speakers(words, units, windows, labels, min_run=0.6):
+    """Gives every word the speaker of the windows that cover it most, then removes flickers:
+    a speaker run shorter than min_run seconds inside a unit takes its neighbour's label. Words
+    with no judged window (very short pieces) take a neighbour in the same Whisper segment."""
+    for u, unit in enumerate(units):
+        mine = [(a, b, l) for (wu, a, b), l in zip(windows, labels) if wu == u and l is not None]
+        for i in unit:
+            w = words[i]; votes = {}
+            for a, b, l in mine:
+                overlap = min(b, w['e']) - max(a, w['s'])
+                if overlap > 0:
+                    votes[l] = votes.get(l, 0) + overlap
+            w['spk'] = max(votes, key=votes.get) if votes else None
+        changed = True
+        while changed:
+            changed = False
+            runs = []
+            for i in unit:
+                if runs and runs[-1][0] == words[i]['spk']:
+                    runs[-1][1].append(i)
+                else:
+                    runs.append([words[i]['spk'], [i]])
+            if len(runs) < 2:
+                break
+            for r, (lab, idx) in enumerate(runs):
+                length = words[idx[-1]]['e'] - words[idx[0]]['s']
+                if lab is not None and length >= min_run:
+                    continue
+                left = runs[r-1] if r > 0 else None; right = runs[r+1] if r + 1 < len(runs) else None
+                pick = max([x for x in (left, right) if x and x[0] is not None], default=None,
+                           key=lambda x: words[x[1][-1]]['e'] - words[x[1][0]]['s'])
+                if pick is not None and pick[0] != lab:
+                    for i in idx: words[i]['spk'] = pick[0]
+                    changed = True; break
+    for u, unit in enumerate(units):
+        if all(words[i]['spk'] is None for i in unit):
+            for j in (u-1, u+1):
+                if 0 <= j < len(units) and words[units[j][0]].get('seg') == words[unit[0]].get('seg') and words[units[j][0]].get('spk') is not None:
+                    lab = words[units[j][0 if j > u else -1]]['spk']
+                    for i in unit: words[i]['spk'] = lab
+                    break
+    return words
+
+
+SOUND_LABELS = [
+    ('ضحكة', ['Laughter', 'Baby laughter', 'Giggle', 'Snicker', 'Belly laugh', 'Chuckle, chortle']),
+    ('همهمة', ['Humming']),
+    ('تنهيدة', ['Sigh']),
+    ('شهقة', ['Gasp']),
+    ('كحة', ['Cough', 'Throat clearing']),
+    ('بكاء', ['Crying, sobbing', 'Baby cry, infant cry', 'Whimper', 'Wail, moan']),
+    ('صرخة', ['Screaming', 'Yell', 'Shout', 'Children shouting', 'Battle cry']),
+    ('تأوه', ['Groan', 'Grunt']),
+    ('تنفس', ['Breathing', 'Pant', 'Wheeze']),
+    ('همس', ['Whispering']),
+    ('عطسة', ['Sneeze']),
+]
+SPEECH_LABELS = ['Speech', 'Child speech, kid speaking', 'Conversation', 'Narration, monologue', 'Babbling', 'Male speech, man speaking', 'Female speech, woman speaking']
+
+
+def name_sound(scores, seconds, min_sound=0.1, min_speech=0.3):
+    """Arabic name for a short non-word vocal sound from AudioSet scores {label: probability}.
+    A short speech-like sound with no words is a filler such as «أمم» / «آه»."""
+    best, value = None, min_sound
+    for name, labels in SOUND_LABELS:
+        p = max((scores.get(l, 0.0) for l in labels), default=0.0)
+        if p >= value:
+            best, value = name, p
+    if best:
+        return best
+    if max((scores.get(l, 0.0) for l in SPEECH_LABELS), default=0.0) >= min_speech:
+        return 'آه/أمم' if seconds <= 1.5 else 'كلام غير واضح'
+    return None
+
+
+def sound_regions(samples, rate, words, frame=0.03, min_len=0.25, join=0.25, guard=0.08):
+    """Stretches where the separated voice track has sound but Whisper wrote no word."""
+    import numpy as np
+    samples = np.asarray(samples, dtype=np.float32)
+    size = max(1, int(round(frame * rate))); count = len(samples) // size
+    if not count:
+        return []
+    rms = np.sqrt(np.mean(samples[:count*size].reshape(count, size) ** 2, axis=1))
+    floor, peak = np.quantile(rms, 0.2), np.quantile(rms, 0.95)
+    if peak < 0.003:
+        return []
+    on = rms > max(floor * 3, peak * 0.12, 0.004)
+    for w in words:
+        a = max(0, int((w['s'] - guard) / frame)); b = min(count, int(np.ceil((w['e'] + guard) / frame)))
+        on[a:b] = False
+    regions, start = [], None
+    for f in range(count + 1):
+        active = f < count and on[f]
+        if active and start is None: start = f
+        if not active and start is not None: regions.append([start * frame, f * frame]); start = None
+    merged = []
+    for a, b in regions:
+        if merged and a - merged[-1][1] < join: merged[-1][1] = b
+        else: merged.append([a, b])
+    return [{'s': round(a, 2), 'e': round(b, 2)} for a, b in merged if b - a >= min_len]
 
 
 def run_dub_stems(source, extra=None):

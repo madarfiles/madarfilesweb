@@ -3,7 +3,7 @@
 import {unzipSync} from 'fflate';
 import {mountColabTool} from './colab-tool.js';
 import {cloudCatalog} from './cloud-catalog.js';
-import {detectSegments,clock,mixArguments,recordingExt,readLines} from './dub-core.js';
+import {detectSegments,clock,mixArguments,recordingExt,readLines,mergeLines} from './dub-core.js';
 import {pickerAccept,requireAccepted,mountFilePicker} from './file-picker.js';
 import {sourceName} from './output-names.js';
 
@@ -26,11 +26,11 @@ export function mountDub(content,{onResult}){
   <div class="dub-main"><button class="button secondary" id="dubHear">▶ اسمع الأصل</button><button class="button dub-rec" id="dubRec">🎙 سجّل صوتك</button><button class="button secondary" id="dubMine" hidden>▶ اسمع تسجيلك</button></div>
   <div class="dub-dots" id="dubDots"></div>
   <div class="dub-nav"><button class="button secondary" id="dubPrev">→ السابق</button><button class="button" id="dubNext">التالي ←</button></div>
-  <details class="cloud-settings"><summary>ضبط وقت الجملة</summary><div class="dub-fine"><button class="dub-chip" data-nudge="s-">البداية −</button><button class="dub-chip" data-nudge="s+">البداية +</button><button class="dub-chip" data-nudge="e-">النهاية −</button><button class="dub-chip" data-nudge="e+">النهاية +</button><button class="dub-chip" id="dubDelete">حذف الجملة</button><button class="dub-chip" id="dubAdd">+ جملة جديدة بعدها</button></div></details></div></section>
+  <details class="cloud-settings"><summary>ضبط وقت الجملة</summary><div class="dub-fine"><button class="dub-chip" data-nudge="s-">البداية −</button><button class="dub-chip" data-nudge="s+">البداية +</button><button class="dub-chip" data-nudge="e-">النهاية −</button><button class="dub-chip" data-nudge="e+">النهاية +</button><button class="dub-chip" id="dubDelete">حذف الجملة</button><button class="dub-chip" id="dubAdd">+ جملة جديدة بعدها</button><button class="dub-chip" id="dubMerge">دمج مع الجملة التالية</button></div></details></div></section>
  <section data-step="export"><p class="dub-lead" id="dubSummary"></p><button class="button secondary full" id="dubPlayAll">▶ معاينة الدبلجة كاملة</button><button class="button full" id="dubExport">تصدير الفيديو المدبلج</button><div id="dubResult"></div></section>
  <p class="notice" id="dubStatus" role="status"></p><div class="inline-error" id="dubError" role="alert"></div>`;
  const q=s=>content.querySelector(s),urls=[],track=u=>(urls.push(u),u);
- let video,colab,stems,segments=[],line=0,mic,recorder,disposed=false,audioCtx,playing,busy=false,step,visited=new Set();
+ let video,colab,stems,segments=[],line=0,speakers=0,mic,recorder,disposed=false,audioCtx,playing,busy=false,step,visited=new Set();
  const status=t=>{if(!disposed)q('#dubStatus').textContent=t||'';},fail=e=>{if(!disposed)q('#dubError').textContent=e?.message||String(e||'');};
  const guard=async fn=>{if(busy)return;busy=true;fail('');try{await fn();}catch(e){if(!disposed)fail(e);}finally{busy=false;}};
 
@@ -68,7 +68,7 @@ export function mountDub(content,{onResult}){
   q('#dubSplitStatus').textContent='نحدد أماكن الكلام…';audioCtx??=new AudioContext();
   const decoded=await audioCtx.decodeAudioData(await stems.voice.arrayBuffer());const mono=new Float32Array(decoded.length);for(let c=0;c<decoded.numberOfChannels;c++){const d=decoded.getChannelData(c);for(let i=0;i<d.length;i++)mono[i]+=d[i]/decoded.numberOfChannels;}
   stems.backgroundBuffer=await audioCtx.decodeAudioData(await stems.background.arrayBuffer());
-  const text=readLines(files['lines.json']);let note=text.note||'';
+  const text=readLines(files['lines.json']);let note=text.note||'';speakers=text.speakers||0;
   segments=text.lines.length?text.lines:detectSegments(mono,decoded.sampleRate).map(s=>({...s}));
   if(!text.lines.length&&text.error)note='ما قدرنا نفرّغ الكلام هالمرة، فقسّمنا الجمل حسب الصوت.';
   const empty=!segments.length;if(empty){segments=[{start:0,end:Math.min(3,stems.backgroundBuffer.duration)}];note='ما لقينا كلام واضح؛ عدّل الوقت من «ضبط وقت الجملة».';}
@@ -90,7 +90,7 @@ export function mountDub(content,{onResult}){
  function renderText(seg){const box=q('#dubText');box.replaceChildren();if(!seg.text&&!seg.tr){box.hidden=true;return;}box.hidden=false;
   const main=document.createElement('p');main.className='dub-say';
   if(seg.tr){main.textContent=seg.tr;main.dir='auto';const bar=document.createElement('div');bar.className='dub-bar';bar.append(document.createElement('i'));box.append(main,bar);const orig=document.createElement('p');orig.className='dub-orig';orig.dir='auto';orig.textContent=seg.text||'';box.append(orig);}
-  else{main.dir='auto';for(const w of seg.words?.length?seg.words:[{w:seg.text,s:seg.start,e:seg.end}]){const span=document.createElement('span');span.textContent=w.w+' ';span.dataset.s=w.s;span.dataset.e=w.e;main.append(span);}box.append(main);}
+  else{main.dir='auto';for(const w of seg.words?.length?seg.words:[{w:seg.text,s:seg.start,e:seg.end}]){const span=document.createElement('span');span.textContent=w.w+' ';span.dataset.s=w.s;span.dataset.e=w.e;if(w.k)span.dataset.k=w.k;main.append(span);}box.append(main);}
   paint(q('#dubPlayer').currentTime);}
  function paint(t){const seg=segments[line];if(!seg)return;for(const span of q('#dubText').querySelectorAll('span[data-s]')){span.className=t>=Number(span.dataset.e)?'said':t>=Number(span.dataset.s)-0.05?'now':'';}
   const bar=q('#dubText .dub-bar i');if(bar)bar.style.width=Math.max(0,Math.min(100,(t-seg.start)/Math.max(0.1,seg.end-seg.start)*100))+'%';}
@@ -98,7 +98,7 @@ export function mountDub(content,{onResult}){
  function stopSync(){if(raf)cancelAnimationFrame(raf);raf=null;}
  // Step 4: one line at a time.
  function showLine(){
-  const seg=segments[line];if(!seg)return;q('#dubLineTitle').textContent='الجملة '+(line+1)+' من '+segments.length;q('#dubLineTime').textContent=clock(seg.start)+' – '+clock(seg.end);
+  const seg=segments[line];if(!seg)return;q('#dubLineTitle').textContent='الجملة '+(line+1)+' من '+segments.length+(speakers>1&&seg.spk?' · الشخصية '+seg.spk:'');q('#dubLineTime').textContent=clock(seg.start)+' – '+clock(seg.end);
   renderText(seg);q('#dubRec').textContent=seg.blob?'🎙 أعد التسجيل':'🎙 سجّل صوتك';q('#dubMine').hidden=!seg.blob;q('#dubPrev').disabled=line===0;q('#dubNext').textContent=line===segments.length-1?'إنهاء والتصدير ←':'التالي ←';
   const v=q('#dubPlayer');if(v.readyState)v.currentTime=seg.start;else v.onloadedmetadata=()=>{v.currentTime=segments[line]?.start||0;};
   q('#dubDots').replaceChildren(...segments.map((s,i)=>{const b=document.createElement('button');b.type='button';b.className='dub-dot'+(i===line?' current':s.blob?' done':'');b.title='الجملة '+(i+1);b.onclick=()=>{if(recorder)return;stopPlayback();line=i;showLine();};return b;}));
@@ -121,6 +121,7 @@ export function mountDub(content,{onResult}){
  for(const b of content.querySelectorAll('[data-nudge]'))b.onclick=()=>{const seg=segments[line],prev=segments[line-1],next=segments[line+1],d=0.25;
   ({'s-':()=>seg.start=Math.max(prev?prev.end:0,seg.start-d),'s+':()=>seg.start=Math.min(seg.end-0.3,seg.start+d),'e-':()=>seg.end=Math.max(seg.start+0.3,seg.end-d),'e+':()=>seg.end=Math.min(next?next.start:Infinity,seg.end+d)})[b.dataset.nudge]();showLine();};
  q('#dubDelete').onclick=()=>{if(segments.length<2)return fail(Error('لازم تبقى جملة وحدة على الأقل'));segments.splice(line,1);line=Math.min(line,segments.length-1);showLine();};
+ q('#dubMerge').onclick=()=>{if(recorder)return;const next=segments[line+1];if(!next)return fail(Error('هذي آخر جملة؛ ما فيه جملة بعدها'));stopPlayback();const had=segments[line].blob||next.blob;segments.splice(line,2,mergeLines(segments[line],next));showLine();if(had)status('دمجنا الجملتين؛ سجّل الجملة الجديدة كاملة.');};
  q('#dubAdd').onclick=()=>{const seg=segments[line],next=segments[line+1],start=seg.end+0.1,end=Math.min(start+3,next?next.start:start+3);if(end-start<0.3)return fail(Error('ما فيه مكان بعد هذي الجملة'));segments.splice(line+1,0,{start,end});line++;showLine();};
 
  // Step 5: export.

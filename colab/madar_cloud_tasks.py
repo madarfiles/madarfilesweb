@@ -46,8 +46,10 @@ def install(task, report):
  deps=DEPS[task]
  if deps:
   try:
-   subprocess.run([sys.executable,'-m','pip','install','--quiet','--disable-pip-version-check','-c',str(constraints),*deps],check=True,timeout=600)
-   if task=='asr':subprocess.run([sys.executable,'-m','pip','install','--quiet','--no-deps','faster-whisper==1.2.1'],check=True,timeout=180)
+   from madar_colab_runtime import install_once
+   commands=[['install','--quiet','--disable-pip-version-check','-c',str(constraints),*deps]]
+   if task=='asr':commands.append(['install','--quiet','--no-deps','faster-whisper==1.2.1'])
+   install_once('task-'+task,commands)
   except subprocess.TimeoutExpired:raise ValueError('انتهت مهلة تجهيز المكتبات؛ يمكن إعادة المحاولة بنفس الجلسة · DEPENDENCY_TIMEOUT')
   except subprocess.CalledProcessError:raise ValueError('تعذر تثبيت مكتبات الأداة المتوافقة · DEPENDENCY_INSTALL')
  importlib.invalidate_caches();_INSTALLED.add(task)
@@ -552,9 +554,69 @@ def serve_translation_worker(device='cuda'):
 if __name__=='__main__' and sys.argv[1:]==['--translation-worker']:serve_translation_worker()
 
 
+# Small helper models for «دبلج»: who is speaking, and which non-word sounds (laughs, hums…)
+# the performer should make. Both are optional: if either fails the lines are still made.
+SPEAKER_MODEL='microsoft/wavlm-base-plus-sv'
+SOUND_MODEL='MIT/ast-finetuned-audioset-10-10-0.4593'
+# WavLM x-vectors of one voice usually agree above ~0.86; cartoon voices, effects and leftover
+# music lower that, so pieces join a speaker from 0.82 (average similarity to the group).
+SPEAKER_SIMILARITY=0.82
+
+
+def mono16k(path):
+ import numpy as np
+ raw=subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-i',str(path),'-ac','1','-ar','16000','-f','f32le','-'],check=True,capture_output=True,timeout=900).stdout
+ return np.frombuffer(raw,dtype=np.float32)
+
+
+def dub_speakers(audio,words,report):
+ """Labels every word with a speaker number from WavLM voice embeddings of short speech pieces."""
+ from madar_colab_runtime import speech_units,speech_windows,cluster_speakers,assign_speakers
+ torch=cuda()
+ from transformers import AutoFeatureExtractor,WavLMForXVector
+ report('processing','تمييز صوت كل شخصية')
+ extractor=load_model(lambda:AutoFeatureExtractor.from_pretrained(SPEAKER_MODEL,trust_remote_code=False),report)
+ model=load_model(lambda:WavLMForXVector.from_pretrained(SPEAKER_MODEL,trust_remote_code=False),report).to('cuda').eval()
+ try:
+  units=speech_units(words);windows=speech_windows(words,units);vectors=[]
+  for start in range(0,len(windows),16):
+   clips=[audio[max(0,int(a*16000)):int(b*16000)] for _,a,b in windows[start:start+16]]
+   inputs=extractor(clips,sampling_rate=16000,padding=True,return_attention_mask=True,return_tensors='pt')
+   with torch.no_grad():vectors+=list(model(**{k:v.to('cuda') for k,v in inputs.items()}).embeddings.float().cpu().numpy())
+  labels=cluster_speakers(vectors,SPEAKER_SIMILARITY)
+  assign_speakers(words,units,windows,labels,min_run=0.8)
+  return len({l for l in labels if l is not None})
+ finally:
+  del model;gc.collect();torch.cuda.empty_cache()
+
+
+def dub_sounds(audio,words,report):
+ """Finds laughs, hums, sighs… on the voice track where Whisper wrote no word, and names them."""
+ from madar_colab_runtime import sound_regions,name_sound
+ regions=sound_regions(audio,16000,words)[:400]
+ if not regions:return []
+ torch=cuda()
+ from transformers import AutoFeatureExtractor,ASTForAudioClassification
+ report('processing','البحث عن الضحك والهمهمة والأصوات اللي مو كلام')
+ extractor=load_model(lambda:AutoFeatureExtractor.from_pretrained(SOUND_MODEL,trust_remote_code=False),report)
+ model=load_model(lambda:ASTForAudioClassification.from_pretrained(SOUND_MODEL,trust_remote_code=False),report).to('cuda').eval()
+ try:
+  names=model.config.id2label;found=[]
+  for r in regions:
+   clip=audio[int(r['s']*16000):int(r['e']*16000)]
+   inputs=extractor(clip,sampling_rate=16000,return_tensors='pt')
+   with torch.no_grad():probs=torch.sigmoid(model(**{k:v.to('cuda') for k,v in inputs.items()}).logits[0]).float().cpu().tolist()
+   label=name_sound({names[i]:p for i,p in enumerate(probs)},r['e']-r['s'])
+   if label:found.append({**r,'label':label})
+  return found
+ finally:
+  del model;gc.collect();torch.cuda.empty_cache()
+
+
 def dub_text(voice, target, report):
  """Speech-to-text for «دبلج» on the separated voice track, with the time of every word,
- grouped into lines; optionally translated to Arabic so the visitor reads while recording."""
+ grouped into whole sentences of one speaker; non-word sounds are marked; optionally
+ translated to Arabic so the visitor reads while recording."""
  from madar_colab_runtime import group_dub_words
  install('asr',report);cuda();report('processing','تفريغ الكلام وتوقيت كل كلمة')
  preload_cuda();import onnxruntime as ort
@@ -569,13 +631,67 @@ def dub_text(voice, target, report):
  for i,seg in enumerate(segments):
   for w in seg.words or []:words.append({'w':w.word,'s':float(w.start),'e':float(w.end),'seg':i})
   report('processing',f'تفريغ الكلام · وصلنا إلى {round(seg.end/60,1)} دقيقة')
- lines=group_dub_words(words);lang=info.language;note=''
+ release_models()
+ sounds=[];speakers=0;skipped=[]
+ if words:
+  try:audio=mono16k(voice)
+  except Exception:audio=None;skipped.append('audio')
+  if audio is not None:
+   try:speakers=dub_speakers(audio,words,report)
+   except Exception as exc:
+    skipped.append('speakers:'+type(exc).__name__)
+    for w in words:w.pop('spk',None)
+   try:sounds=dub_sounds(audio,words,report)
+   except Exception as exc:skipped.append('sounds:'+type(exc).__name__)
+ lines=group_dub_words(words,sounds);lang=info.language;note=''
  if target=='ar' and lines and lang!='ar':
   if lang in LANG:
    report('processing','ترجمة الجمل إلى العربية')
    try:
-    for line,text in zip(lines,translate_lines([l['text'] for l in lines],lang,'ar',report)):line['tr']=text
+    spoken=[l for l in lines if l['say'].strip()]
+    for line,text in zip(spoken,translate_lines([l['say'] for l in spoken],lang,'ar',report)):
+     # Sound marks stay in place: before the sentence if they open it, otherwise after it.
+     marks=[w for w in line['words'] if w.get('k')=='sound'];first=next((w for w in line['words'] if not w.get('k')),None)
+     before=[m['w'] for m in marks if first and m['s']<first['s']];after=[m['w'] for m in marks if not first or m['s']>=first['s']]
+     line['tr']=' '.join([*before,text,*after])
    finally:stop_translator()
   else:note='الترجمة للعربي غير متاحة لهذه اللغة؛ يظهر النص بلغته الأصلية'
  release_models()
- return {'language':lang,'target':target,'lines':lines,'note':note}
+ if any(x.startswith(('audio','speakers')) for x in skipped):note=(note+' · ' if note else '')+'تمييز الشخصيات ما اشتغل هالمرة؛ الجمل مقسّمة حسب نهايتها'
+ return {'language':lang,'target':target,'lines':lines,'note':note,'speakers':speakers,**({'skipped':skipped} if skipped else {})}
+
+
+# Early preparation: started when the Colab session is prepared, while the file is still
+# uploading, so each tool's libraries and model files are ready before the job needs them.
+# It only installs and downloads (no GPU); the job runs exactly as before and simply finds
+# everything in place. Any failure here is ignored: the job then does the same step itself.
+WARM_TOOLS={'separate','dub','asr','translate'}
+
+def warm(tool):
+ if tool not in WARM_TOOLS:return []
+ from madar_colab_runtime import install_once,SEPARATION_PIP,MODEL,DUB_MODEL,CACHE
+ quiet=lambda *a,**k:None;done=[]
+ def step(name,fn):
+  try:fn();done.append(name)
+  except Exception as exc:done.append(name+':'+type(exc).__name__)
+ def uvr(model):
+  install_once('separation',SEPARATION_PIP)
+  from audio_separator.separator import Separator
+  CACHE.mkdir(parents=True,exist_ok=True)
+  Separator(model_file_dir=str(CACHE),output_dir=str(CACHE),log_level=40).download_model_files(model)
+ def whisper():
+  install('asr',quiet)
+  from faster_whisper.utils import download_model
+  download_model('large-v3-turbo')
+ def hub(repo,revision=None,patterns=None):
+  from huggingface_hub import snapshot_download
+  snapshot_download(repo,revision=revision,allow_patterns=patterns)
+ if tool in {'separate','dub'}:step('separation',lambda:uvr(DUB_MODEL if tool=='dub' else MODEL))
+ if tool in {'dub','asr'}:step('whisper',whisper)
+ if tool=='dub':
+  for repo in (SPEAKER_MODEL,SOUND_MODEL):step(repo,lambda repo=repo:hub(repo,patterns=['*.json','*.safetensors','*.bin','*.txt']))
+ if tool=='translate':
+  def nllb():
+   install('translate',quiet);hub('facebook/nllb-200-distilled-600M','38bd1c6a0f58097b26ef7c7cd73a0dcac034350a',['*.json','model.safetensors','*.model'])
+  step('nllb',nllb)
+ return done

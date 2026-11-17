@@ -20,3 +20,14 @@ test('lines from Colab are validated, sorted and never overlap; bad data falls b
  const r=readLines(enc({language:'en',lines:[{start:3,end:4,text:'b',words:[{w:'b',s:3,e:3.5},{w:'x',s:'bad',e:1}]},{start:1,end:3.4,text:'a',tr:'أ'},{start:5,end:4,text:'reversed'},{start:-1,end:2}]}));
  assert.deepEqual(r.lines.map(l=>[l.start,l.end,l.text,l.tr]),[[1,3.4,'a','أ'],[3.4,4,'b',undefined]]);assert.equal(r.lines[1].words.length,1);
  assert.deepEqual(readLines(undefined),{lines:[]});assert.equal(readLines(new TextEncoder().encode('{nope')).error,'bad json');assert.equal(readLines(enc({error:'GPU',lines:[]})).error,'GPU');});
+test('speaker numbers and laugh/pause marks reach the page; unknown marks are dropped',async()=>{const{readLines}=await import('../src/dub-core.js');const enc=o=>new TextEncoder().encode(JSON.stringify(o));
+ const r=readLines(enc({speakers:2,lines:[{start:1,end:3,text:'دي ديمز (ضحكة)',spk:2,words:[{w:'دي',s:1,e:1.3},{w:'(ضحكة)',s:1.9,e:2.3,k:'sound'},{w:'…',s:1.3,e:1.9,k:'pause'},{w:'x',s:2.4,e:2.5,k:'<script>'}]},{start:4,end:5,text:'b',spk:'2'}]}));
+ assert.equal(r.speakers,2);assert.equal(r.lines[0].spk,2);assert.equal(r.lines[1].spk,undefined);
+ assert.deepEqual(r.lines[0].words.map(w=>w.k),[undefined,'sound','pause',undefined]);assert.equal(readLines(enc({speakers:-1,lines:[]})).speakers,0);});
+test('merging two lines keeps both sentences, drops recordings and keeps a shared speaker only',async()=>{const{mergeLines}=await import('../src/dub-core.js');
+ const a={start:1,end:2,text:'وأنا',words:[{w:'وأنا',s:1,e:2}],spk:1,blob:{}},b={start:2,end:3,text:'أمك',words:[{w:'أمك',s:2,e:3}],spk:1,tr:'your mum'};
+ const m=mergeLines(a,b);assert.deepEqual([m.start,m.end,m.text,m.tr,m.spk,m.words.length,m.blob],[1,3,'وأنا أمك','وأنا your mum',1,2,undefined]);
+ assert.equal(mergeLines(a,{...b,spk:2}).spk,undefined);});
+test('early preparation is launched only for known tools with a fixed command',async()=>{const{warmCode,WARM_TOOLS}=await import('../src/colab-server.js');
+ assert.deepEqual(WARM_TOOLS,['separate','dub','asr','translate']);const code=warmCode('dub');assert.match(code,/'service.py'\),'warm','dub'\]/);assert.match(code,/warm-dub\.json/);
+ assert.throws(()=>warmCode("dub'];import os#"));assert.throws(()=>warmCode('ocr'));});

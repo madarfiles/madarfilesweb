@@ -71,5 +71,6 @@ html:has(dialog[open]),body:has(dialog[open]){overflow:hidden;overscroll-behavio
 .dub-stage{position:relative}.dub-count{position:absolute;inset:8px 0;display:flex;align-items:center;justify-content:center;font-size:72px;font-weight:800;color:#fff;background:#0007;border-radius:14px}.dub-count[hidden]{display:none}
 .dub-text{background:var(--ink);color:#fff;border-radius:14px;padding:12px 14px;margin:-2px 0 8px;min-height:54px}.dub-text[hidden]{display:none}
 .dub-say{margin:0;font-size:17px;line-height:1.8;font-weight:700}.dub-say span{color:#ffffff73;transition:color .12s}.dub-say span.now{color:#ffd29a}.dub-say span.said{color:#fff}
+.dub-say span[data-k=sound]{font-style:italic;font-weight:600;color:#9fd8ff73}.dub-say span[data-k=sound].now,.dub-say span[data-k=sound].said{color:#9fd8ff}.dub-say span[data-k=pause]{letter-spacing:2px}
 .dub-bar{height:4px;background:#ffffff26;border-radius:4px;margin-top:8px;overflow:hidden}.dub-bar i{display:block;height:100%;width:0;background:var(--orange)}
 .dub-orig{margin:6px 0 0;font-size:11px;color:#ffffffa6;line-height:1.7}
