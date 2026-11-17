@@ -37,3 +37,22 @@
 .qr-modes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 14px}.qr-modes .button{font-size:12px;padding:10px 8px}
 .p2p-dialog progress{width:100%;height:10px;margin:6px 0 12px}.p2p-name{font-weight:700;overflow-wrap:anywhere;margin:8px 0}.p2p-dialog .design-preview{display:block;max-width:100%;max-height:50vh;margin:0 auto 12px;border-radius:12px}
 .legal{max-width:760px;margin:0 auto;padding:28px 20px 60px;line-height:2}.legal h1{font-size:24px}.legal h2{font-size:18px;margin-top:26px}.legal code{font-size:12px;overflow-wrap:anywhere}.legal section{margin-top:30px}
+
+.music-hero{margin-top:18px;background:linear-gradient(120deg,#fffaf3,#f7ece2);border:1px solid #ecd7c8;border-radius:20px;padding:22px 26px;display:grid;grid-template-columns:auto 1fr auto;gap:22px;align-items:center;position:relative;overflow:hidden}
+.mh-wave{display:flex;align-items:center;gap:4px;height:54px}.mh-wave i{display:block;width:5px;border-radius:3px;background:var(--orange);height:20%;animation:mhwave 1.6s ease-in-out infinite}
+.mh-wave i:nth-child(odd){background:var(--green)}.mh-wave i:nth-child(1){animation-delay:-.2s}.mh-wave i:nth-child(2){animation-delay:-.9s}.mh-wave i:nth-child(3){animation-delay:-.4s}.mh-wave i:nth-child(4){animation-delay:-1.2s}.mh-wave i:nth-child(5){animation-delay:-.6s}.mh-wave i:nth-child(6){animation-delay:-1.4s}.mh-wave i:nth-child(7){animation-delay:-.1s}.mh-wave i:nth-child(8){animation-delay:-1s}.mh-wave i:nth-child(9){animation-delay:-.7s}
+.mh-wave i:nth-child(even){animation-name:mhfade}
+@keyframes mhwave{0%,100%{height:22%}50%{height:95%}}@keyframes mhfade{0%,100%{height:30%;opacity:1}50%{height:70%;opacity:.15}}
+.mh-kicker{display:inline-flex;align-items:center;gap:6px;font-size:10px;color:var(--orange);font-weight:700}.mh-kicker svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round}
+.mh-text h2{margin:6px 0 4px;font-size:22px;color:var(--ink)}.mh-text p{margin:0;color:var(--muted);font-size:12px;line-height:1.9}
+.mh-actions{display:flex;flex-direction:column;gap:9px;align-items:stretch;min-width:190px}.mh-main{background:var(--orange)!important;color:#fff!important;text-align:center;text-decoration:none}
+.mh-new{font-size:11px;color:var(--green);text-decoration:none;display:flex;gap:7px;align-items:center;justify-content:center}.mh-new b{background:var(--green);color:#fff;border-radius:20px;padding:1px 8px;font-size:9px}
+@media (max-width:760px){.music-hero{grid-template-columns:1fr;text-align:center;padding:20px}.mh-wave{justify-content:center}.mh-text h2{font-size:20px}.mh-actions{min-width:0}}
+@media (prefers-reduced-motion:reduce){.mh-wave i{animation:none;height:60%}}
+.dub-intro{margin-bottom:12px}.dub-badge{display:inline-block;background:var(--green);color:#fff;border-radius:20px;padding:3px 10px;font-size:11px}.dub-intro h3{margin:8px 0 4px}.dub-intro p{margin:0;color:var(--muted);font-size:12px;line-height:1.9}
+.dub-steps{display:flex;gap:6px;list-style:none;padding:0;margin:12px 0;counter-reset:s}.dub-steps li{flex:1;text-align:center;font-size:10px;padding:7px 4px;border-radius:10px;background:var(--soft);color:var(--muted)}.dub-steps li.active{background:var(--ink);color:#fff}.dub-steps li.done{background:#dfe8dc;color:var(--green)}
+.dub-video{width:100%;max-height:46vh;border-radius:14px;background:#000;margin:8px 0}
+.dub-tools{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}.dub-list{list-style:none;padding:0;margin:8px 0 14px;display:grid;gap:9px}
+.dub-item{border:1px solid var(--line);border-radius:14px;padding:10px 12px;background:var(--paper)}.dub-item.recorded{border-color:#e8c9b6}.dub-item.done{border-color:#b9cdb4;background:#f4f8f1}
+.dub-time{font-weight:700;font-size:12px;margin-bottom:8px}.dub-actions{display:flex;gap:6px;flex-wrap:wrap}.dub-actions .button{padding:8px 11px;font-size:11px}
+.dub-fine{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px}.dub-chip{border:1px solid var(--line);background:var(--bg);border-radius:20px;padding:3px 9px;font-size:10px;color:var(--muted);cursor:pointer}

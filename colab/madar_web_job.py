@@ -144,7 +144,10 @@ def main():
                             if line.strip(): status('separating', line.strip()[:500])
                 def flush(self): sys.__stdout__.flush()
             sys.stdout = ProgressLog()
-            output = runtime.run_separation(source, cfg['start'], cfg['duration'], cfg['mode'], **({'output_format':cfg['outputFormat']} if cfg.get('outputFormat') else {}))
+            if cfg.get('task') == 'dub':
+                output = runtime.run_dub_stems(source)
+            else:
+                output = runtime.run_separation(source, cfg['start'], cfg['duration'], cfg['mode'], **({'output_format':cfg['outputFormat']} if cfg.get('outputFormat') else {}))
             sys.stdout = sys.__stdout__
         if output.stat().st_size<1:raise ValueError('لم تنتج الأداة ملفًا صالحًا')
         if output.stat().st_size > 256*1024**2:
