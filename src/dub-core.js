@@ -38,3 +38,12 @@ export function mixArguments(clips,{output='dubbed.mp4',videoCodec=['-c:v','copy
 }
 
 export const recordingExt=type=>/mp4|aac|m4a/.test(type)?'m4a':/ogg/.test(type)?'ogg':'webm';
+
+// lines.json from Colab: [{start,end,text,words:[{w,s,e}],tr?}] → dubbing lines (invalid entries dropped).
+export function readLines(bytes){
+ if(!bytes)return {lines:[]};let data;try{data=JSON.parse(new TextDecoder().decode(bytes));}catch{return {lines:[],error:'bad json'};}
+ const num=n=>typeof n==='number'&&Number.isFinite(n)&&n>=0,str=v=>typeof v==='string'?v.slice(0,500):'';
+ const lines=(Array.isArray(data?.lines)?data.lines:[]).filter(l=>num(l?.start)&&num(l?.end)&&l.end>l.start).slice(0,2000).map(l=>({start:l.start,end:l.end,text:str(l.text),...(l.tr?{tr:str(l.tr)}:{}),words:(Array.isArray(l.words)?l.words:[]).filter(w=>num(w?.s)&&num(w?.e)).slice(0,200).map(w=>({w:str(w.w).slice(0,80),s:w.s,e:w.e}))}));
+ lines.sort((a,b)=>a.start-b.start);for(let i=1;i<lines.length;i++)if(lines[i].start<lines[i-1].end)lines[i].start=lines[i-1].end;
+ return {lines:lines.filter(l=>l.end-l.start>=0.2),error:data?.error?String(data.error).slice(0,300):undefined,note:str(data?.note),language:str(data?.language)};
+}

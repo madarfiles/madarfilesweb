@@ -66,3 +66,10 @@
 .dub-dots{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin:6px 0 12px}.dub-dot{width:11px;height:11px;border-radius:50%;border:0;background:var(--line);padding:0;cursor:pointer}.dub-dot.done{background:var(--green)}.dub-dot.current{background:var(--orange);transform:scale(1.3)}
 .dub-nav{display:grid;grid-template-columns:1fr 1.4fr;gap:8px;margin-bottom:8px}
 #dubStatus:empty,#dubError:empty,.colab-wizard .inline-error:empty{display:none}.upload-zone[hidden]{display:none}
+
+html:has(dialog[open]),body:has(dialog[open]){overflow:hidden;overscroll-behavior:none}dialog{overscroll-behavior:contain}
+.dub-stage{position:relative}.dub-count{position:absolute;inset:8px 0;display:flex;align-items:center;justify-content:center;font-size:72px;font-weight:800;color:#fff;background:#0007;border-radius:14px}.dub-count[hidden]{display:none}
+.dub-text{background:var(--ink);color:#fff;border-radius:14px;padding:12px 14px;margin:-2px 0 8px;min-height:54px}.dub-text[hidden]{display:none}
+.dub-say{margin:0;font-size:17px;line-height:1.8;font-weight:700}.dub-say span{color:#ffffff73;transition:color .12s}.dub-say span.now{color:#ffd29a}.dub-say span.said{color:#fff}
+.dub-bar{height:4px;background:#ffffff26;border-radius:4px;margin-top:8px;overflow:hidden}.dub-bar i{display:block;height:100%;width:0;background:var(--orange)}
+.dub-orig{margin:6px 0 0;font-size:11px;color:#ffffffa6;line-height:1.7}

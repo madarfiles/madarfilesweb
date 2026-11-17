@@ -6,6 +6,10 @@ from functools import lru_cache
 from pathlib import Path
 
 MODEL = 'UVR-MDX-NET-Voc_FT.onnx'
+# Dubbing needs a background with no voice left in it. Measured on a speech + music test mix,
+# Voc_FT left the voice clearly audible in its instrumental (+12.4 dB during speech) while the
+# instrumental-trained Inst_HQ_4 left almost none (+2.3 dB), so dubbing uses Inst_HQ_4.
+DUB_MODEL = 'UVR-MDX-NET-Inst_HQ_4.onnx'
 ROOT = Path('/content/madar_separation')
 CACHE = Path('/content/madar_models')
 CHUNK_SECONDS = 300
@@ -202,11 +206,11 @@ def session_from_separator(separator):
     raise RuntimeError('لم يتفعّل CUDA فعليًا؛ لا توجد عودة إلى CPU في هذا الدفتر')
 
 
-def new_separator(output_dir, single_stem='Vocals'):
+def new_separator(output_dir, single_stem='Vocals', model=None):
     from audio_separator.separator import Separator
     obj = Separator(output_dir=str(output_dir), model_file_dir=str(CACHE), output_format='WAV', output_single_stem=single_stem, use_soundfile=True,
                     log_level=logging.WARNING, mdx_params={'hop_length':1024, 'segment_size':256, 'overlap':0.25, 'batch_size':1, 'enable_denoise':False})
-    obj.load_model(model_filename=MODEL)
+    obj.load_model(model_filename=model or MODEL)
     session_from_separator(obj)
     return obj
 
@@ -337,7 +341,42 @@ def run_separation(source, start=0, duration=0, mode='audio', output_format=None
         gc.collect()
 
 
-def run_dub_stems(source):
+def group_dub_words(words, gap=0.35, max_len=6.0, pad_start=0.05, pad_end=0.12):
+    """Turns Whisper word timings into dubbing lines. A new line starts at a pause, after a
+    sentence end, or when Whisper started a new segment after a short gap (often a new
+    speaker); long lines are split at their widest pause. Cuts always fall between words."""
+    words = [w for w in words if str(w.get('w', '')).strip() and w.get('e', 0) > w.get('s', 0)]
+    lines, cur = [], []
+    def close():
+        if cur: lines.append(list(cur)); cur.clear()
+    for i, w in enumerate(words):
+        if cur:
+            prev = cur[-1]; pause = w['s'] - prev['e']
+            ends = str(prev['w']).rstrip().endswith(('.', '?', '!', '؟', '…', '。'))
+            if pause >= gap or (ends and pause >= 0.08) or (w.get('seg') != prev.get('seg') and pause >= 0.15):
+                close()
+        cur.append(w)
+    close()
+    out = []
+    def split(chunk):
+        if chunk[-1]['e'] - chunk[0]['s'] <= max_len or len(chunk) < 2:
+            out.append(chunk); return
+        # Widest pause wins; among equal pauses (fluent speech) the cut nearest the middle.
+        middle = (chunk[0]['s'] + chunk[-1]['e']) / 2
+        k = max(range(1, len(chunk)), key=lambda j: (round(chunk[j]['s'] - chunk[j-1]['e'], 1), -abs(chunk[j]['s'] - middle)))
+        split(chunk[:k]); split(chunk[k:])
+    for chunk in lines: split(chunk)
+    result = []
+    for chunk in out:
+        start = max(0.0, chunk[0]['s'] - pad_start); end = chunk[-1]['e'] + pad_end
+        if result and start < result[-1]['end']:
+            mid = round((result[-1]['words'][-1]['e'] + chunk[0]['s']) / 2, 2); result[-1]['end'] = mid; start = mid
+        result.append({'start': round(start, 2), 'end': round(end, 2), 'text': ' '.join(str(w['w']).strip() for w in chunk),
+                       'words': [{'w': str(w['w']).strip(), 's': round(w['s'], 2), 'e': round(w['e'], 2)} for w in chunk]})
+    return result
+
+
+def run_dub_stems(source, extra=None):
     """Dubbing preparation: split the whole source into the human voice and everything else
     (ambient sound, effects, music). Both stems come back sample-aligned in one ZIP so the
     browser can find speech timings from voice.m4a and mix new recordings over background.m4a."""
@@ -351,10 +390,10 @@ def run_dub_stems(source):
     plan = chunk_plan(total, chunk_seconds=CHUNK_SECONDS)
     if shutil.disk_usage(ROOT).free < 2*1024**3:
         raise RuntimeError('مساحة Colab المتبقية أقل من 2 GB')
-    work = ROOT/('dub-'+source_fingerprint(source, 0, 0, 'audio'))
+    work = ROOT/('dub2-'+source_fingerprint(source, 0, 0, 'audio'))
     work.mkdir(parents=True, exist_ok=True)
     print('تجهيز الدبلجة · عدد الأجزاء:', len(plan), '· المدة:', round(total, 1), 'ثانية', flush=True)
-    separator = new_separator(work, single_stem=None)
+    separator = new_separator(work, single_stem=None, model=DUB_MODEL)
     voices, backgrounds = [], []
     try:
         for index, (at, seconds) in enumerate(plan):
@@ -382,6 +421,11 @@ def run_dub_stems(source):
             print('جمع ' + ('مسار الكلام' if label == 'voice' else 'مسار المحيط') + '…', flush=True)
             ffmpeg(['-f', 'concat', '-safe', '0', '-i', listing, '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', target])
             outputs.append(target)
+        # Free the separation model before anything else uses the GPU (speech-to-text).
+        separator = None
+        gc.collect()
+        if extra:
+            outputs += list(extra(outputs[0], work) or [])
         bundle = work/'dub.zip'
         with zipfile.ZipFile(bundle, 'w', zipfile.ZIP_STORED) as z:
             for path in outputs:
