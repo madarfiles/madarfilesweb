@@ -1,8 +1,13 @@
 // Dub studio end-to-end in Chrome with a fake microphone and a stand-in for the Colab step.
-// Fixtures (video.mp4, voice.m4a, background.m4a) are generated with system ffmpeg in /home/claude/qa/dubfx.
-import http from 'node:http';import {readFile,writeFile} from 'node:fs/promises';import {execFileSync} from 'node:child_process';
-const root=process.argv[2],fx='/home/claude/qa/dubfx';const {build}=await import(root+'/node_modules/esbuild/lib/main.js');const {chromium}=await import('/opt/npm-tools/node_modules/playwright/index.mjs');
-const fake={name:'fake-colab',setup(b){b.onResolve({filter:/colab-tool\.js$/},()=>({path:''+root+'/qa/fake-colab.js'}));}};
+// node qa/dub-e2e.mjs "$PWD" after npm run build:netlify. Fixtures are generated here with system ffmpeg.
+import http from 'node:http';import {readFile,writeFile,mkdir} from 'node:fs/promises';import {execFileSync} from 'node:child_process';
+const root=process.argv[2],fx='/tmp/madar-dub-fx';await mkdir(fx,{recursive:true});
+const ff=a=>execFileSync('ffmpeg',['-v','error','-y',...a]);
+ff(['-f','lavfi','-i','color=c=0x283c3b:s=320x180:r=15','-f','lavfi','-i','sine=f=300:sample_rate=44100','-t','7','-c:v','libx264','-pix_fmt','yuv420p','-c:a','aac','-shortest',fx+'/video.mp4']);
+ff(['-f','lavfi','-i','sine=f=500:sample_rate=44100:d=7','-af',"volume='if(between(t,1,2.5)+between(t,4,5),1,0)':eval=frame",'-ac','2','-c:a','aac',fx+'/voice.m4a']);
+ff(['-f','lavfi','-i','anoisesrc=a=0.03:d=7:r=44100','-ac','2','-c:a','aac',fx+'/background.m4a']);
+const {build}=await import(root+'/node_modules/esbuild/lib/main.js');const {chromium}=await import(process.env.PLAYWRIGHT||'/opt/npm-tools/node_modules/playwright/index.mjs');
+const fake={name:'fake-colab',setup(b){b.onResolve({filter:/colab-tool\.js$/},()=>({path:root+'/qa/fake-colab.js'}));}};
 const harness=(await build({stdin:{contents:"import {mountDub} from './src/dub.js';window.results=[];window.tool=mountDub(document.querySelector('#content'),{onResult:(blob,name,kind)=>{window.results.push({name,kind,size:blob.size});window.lastBlob=blob;}});",resolveDir:root},bundle:true,write:false,format:'esm',plugins:[fake],nodePaths:[root+'/node_modules']})).outputFiles[0].text;
 const types={js:'text/javascript',css:'text/css',html:'text/html',wasm:'application/wasm',m4a:'audio/mp4',mp4:'video/mp4'};
 const server=http.createServer(async(req,res)=>{const path=new URL(req.url,'http://x').pathname;
@@ -12,20 +17,19 @@ const server=http.createServer(async(req,res)=>{const path=new URL(req.url,'http
 await new Promise(r=>server.listen(0,'127.0.0.1',r));const base='http://127.0.0.1:'+server.address().port;
 const browser=await chromium.launch({executablePath:'/usr/bin/google-chrome',args:['--no-sandbox','--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream','--autoplay-policy=no-user-gesture-required']});
 const ctx=await browser.newContext({permissions:['microphone'],viewport:{width:430,height:900}});const page=await ctx.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error'&&!/404/.test(m.text()))errors.push(m.text());});
-const status=()=>page.locator('#dubStatus').textContent();
-await page.goto(base);await page.setInputFiles('#dubFile',fx+'/video.mp4');await page.click('#dubPrepare');
-await page.waitForSelector('[data-stage="2"]:not([hidden]) #fakeRun',{timeout:120000});console.log('stage2:',await status());
-await page.click('#fakeRun');await page.waitForSelector('[data-stage="3"]:not([hidden]) .dub-item',{timeout:60000});
-console.log('uploaded to colab:',JSON.stringify(await page.evaluate(()=>window.fakeUploaded)));
-console.log('segments:',JSON.stringify(await page.$$eval('.dub-time',e=>e.map(x=>x.textContent))),'|',await status());
-await page.screenshot({path:'/home/claude/qa/dub-stage3.png',fullPage:true});
-for(const i of [0,1]){const item=page.locator('.dub-item').nth(i);await item.getByRole('button',{name:/سجّل/}).click();await page.waitForFunction(()=>/يسجّل/.test(document.querySelector('#dubStatus').textContent),null,{timeout:10000});await page.waitForTimeout(1300);await page.locator('.dub-item').nth(i).getByRole('button',{name:/إيقاف/}).click();
- await page.locator('.dub-item').nth(i).getByRole('button',{name:/معاينة/}).waitFor({timeout:10000});await page.locator('.dub-item').nth(i).getByRole('button',{name:/✓ تم/}).click();}
-console.log('progress:',await page.locator('#dubProgress').textContent());
-await page.locator('.dub-item').nth(0).getByRole('button',{name:/معاينة/}).click();await page.waitForTimeout(800);
-await page.screenshot({path:'/home/claude/qa/dub-recorded.png',fullPage:true});
-await page.click('#dubExport');await page.waitForSelector('[data-stage="4"]:not([hidden]) video',{timeout:180000});
+const visible=()=>page.evaluate(()=>[...document.querySelectorAll('section[data-step]')].filter(s=>!s.hidden).map(s=>s.dataset.step).join(','));const shot=n=>page.screenshot({path:'/tmp/dub-'+n+'.png',fullPage:true});
+await page.goto(base);console.log('1 visible:',await visible(),'| back hidden:',await page.locator('#dubBack').isHidden());await shot('1-connect');
+await page.click('#fakeConnect');console.log('2 visible:',await visible(),'| start disabled:',await page.locator('#dubStart').isDisabled());
+await page.setInputFiles('#dubFile',fx+'/video.mp4');await shot('2-video');await page.click('#dubStart');console.log('3 visible:',await visible());
+await page.waitForFunction(()=>!document.querySelector('section[data-step="record"]').hidden,null,{timeout:120000});console.log('uploaded:',JSON.stringify(await page.evaluate(()=>window.fakeUploaded)));
+console.log('4 visible:',await visible(),'|',await page.locator('#dubLineTitle').textContent(),await page.locator('#dubLineTime').textContent(),'| dots:',await page.locator('.dub-dot').count());await shot('3-record');
+for(let i=0;i<2;i++){await page.click('#dubRec');await page.waitForFunction(()=>/إيقاف/.test(document.querySelector('#dubRec').textContent),null,{timeout:10000});await page.waitForTimeout(1200);await page.click('#dubRec');await page.locator('#dubMine').waitFor({state:'visible',timeout:10000});if(i===0){await page.click('#dubMine');await page.waitForTimeout(600);await shot('4-recorded');}await page.click('#dubNext');}
+console.log('5 visible:',await visible(),'|',await page.locator('#dubSummary').textContent());
+await page.click('#dubBack');console.log('back ->',await visible(),await page.locator('#dubLineTitle').textContent());await page.click('#dubNext');
+await page.click('#dubExport');await page.waitForSelector('#dubResult video',{timeout:180000});await shot('5-done');
 const out=await page.evaluate(async()=>{const b=new Uint8Array(await window.lastBlob.arrayBuffer());let s='';for(let i=0;i<b.length;i+=32768)s+=String.fromCharCode(...b.subarray(i,i+32768));return {results:window.results,data:btoa(s)};});
-await writeFile('/home/claude/qa/dubbed.mp4',Buffer.from(out.data,'base64'));console.log('result:',JSON.stringify(out.results),'|',await status());
-await page.screenshot({path:'/home/claude/qa/dub-done.png',fullPage:true});
+await writeFile('/tmp/dubbed.mp4',Buffer.from(out.data,'base64'));console.log('result:',JSON.stringify(out.results),'|',await page.locator('#dubStatus').textContent());
+const level=t=>Number(/mean_volume: (-?[\d.]+)/.exec(execFileSync('sh',['-c',`ffmpeg -hide_banner -ss ${t} -t 0.4 -i /tmp/dubbed.mp4 -af volumedetect -f null - 2>&1 | grep mean_volume`]).toString())[1]);
+const lv=[0.3,1.3,3.2,4.3].map(level);console.log('levels dB @0.3,1.3,3.2,4.3:',lv.join(' '));
 console.log('errors:',JSON.stringify(errors));await browser.close();server.close();
+if(errors.length||!(lv[1]>lv[0]+10&&lv[3]>lv[2]+10))process.exit(1);
