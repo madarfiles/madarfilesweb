@@ -27,12 +27,12 @@ class Warm(unittest.TestCase):
   sys.path.insert(0,str(ROOT/'colab'))
   cloud=load('warm_cloud','madar_cloud_tasks.py')
   seen=[]
-  fake_rt=type(sys)('madar_colab_runtime');fake_rt.install_once=lambda key,c:seen.append(('pip',key));fake_rt.SEPARATION_PIP=[];fake_rt.MODEL='voc.onnx';fake_rt.DUB_MODEL='inst.onnx';fake_rt.CACHE=Path(tempfile.mkdtemp())
+  fake_rt=type(sys)('madar_colab_runtime');fake_rt.install_once=lambda key,c:seen.append(('pip',key));fake_rt.SEPARATION_PIP=[];fake_rt.MODEL='voc.onnx';fake_rt.DUB_MODEL='inst.onnx';fake_rt.CACHE=Path(tempfile.mkdtemp());fake_rt.VOICEPRINT_PIP=[];fake_rt.voiceprint_model=lambda folder:seen.append(('model',str(folder)))
   hub=type(sys)('huggingface_hub');hub.snapshot_download=lambda repo,revision=None,allow_patterns=None:seen.append(('hub',repo))
   def boom(*a,**k):raise ImportError('no separator here')
   with patch.dict(sys.modules,{'madar_colab_runtime':fake_rt,'huggingface_hub':hub}),patch.object(cloud,'install',side_effect=lambda t,r:seen.append(('task',t))):
    done=cloud.warm('dub')
-  self.assertEqual(done[0],'separation:ModuleNotFoundError');self.assertTrue(done[1].startswith('whisper'))
-  self.assertIn(('hub','microsoft/wavlm-base-plus-sv'),seen);self.assertIn(('hub','MIT/ast-finetuned-audioset-10-10-0.4593'),seen)
+  self.assertTrue(done[0].startswith('separation'));self.assertTrue(done[1].startswith('whisper'));self.assertTrue(done[2].startswith('voiceprint'),done)
+  self.assertIn(('pip','voiceprint'),seen);self.assertIn(('hub','MIT/ast-finetuned-audioset-10-10-0.4593'),seen)
   self.assertEqual(cloud.warm('ocr'),[],'tools without a plan do nothing')
 if __name__=='__main__':unittest.main()

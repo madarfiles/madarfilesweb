@@ -554,14 +554,14 @@ def serve_translation_worker(device='cuda'):
 if __name__=='__main__' and sys.argv[1:]==['--translation-worker']:serve_translation_worker()
 
 
-# Small helper models for «دبلج»: who is speaking, and which non-word sounds (laughs, hums…)
-# the performer should make. Both are optional: if either fails the lines are still made.
-SPEAKER_MODEL='microsoft/wavlm-base-plus-sv'
+# Helper models for «دبلج»: who is speaking (TitaNet voiceprints) and which non-word sounds
+# the performer should make (AST). Both are optional: if either fails the lines are still made.
 SOUND_MODEL='MIT/ast-finetuned-audioset-10-10-0.4593'
-# WavLM x-vectors of one voice usually agree above ~0.86, but cartoon voices, effects and leftover
-# music lower that a lot: at 0.82 one person split into several «speakers» (94 lines for a 3 min
-# clip), so pieces join a speaker from 0.72 and a speaker run must last 1.2 s to count.
-SPEAKER_SIMILARITY=0.72
+# Tuned on a dubbed cartoon (Bluey, Arabic): long pieces of one voice agree at 0.7–0.85, other
+# voices stay under ~0.55; a short piece joins a voice from 0.45, and one under 0.25 to every
+# known voice (a deep voice among children) is a new speaker.
+SPEAKER_SIMILARITY=0.5
+SPEAKER_ASSIGN=0.45
 
 
 def mono16k(path):
@@ -571,24 +571,21 @@ def mono16k(path):
 
 
 def dub_speakers(audio,words,report):
- """Labels every word with a speaker number from WavLM voice embeddings of short speech pieces."""
- from madar_colab_runtime import speech_units,speech_windows,cluster_speakers,assign_speakers
- torch=cuda()
- from transformers import AutoFeatureExtractor,WavLMForXVector
+ """Speaker turns for «دبلج»: Whisper's segments are cut into pieces, every piece gets a TitaNet
+ voiceprint (in its own process), and pieces are grouped into speakers. Returns (units, labels)."""
+ import numpy as np,tempfile
+ from madar_colab_runtime import turn_units,cluster_speakers,install_once,voiceprint_model,VOICEPRINT_PIP,CACHE
  report('processing','تمييز صوت كل شخصية')
- extractor=load_model(lambda:AutoFeatureExtractor.from_pretrained(SPEAKER_MODEL,trust_remote_code=False),report)
- model=load_model(lambda:WavLMForXVector.from_pretrained(SPEAKER_MODEL,trust_remote_code=False),report).to('cuda').eval()
- try:
-  units=speech_units(words);windows=speech_windows(words,units);vectors=[]
-  for start in range(0,len(windows),16):
-   clips=[audio[max(0,int(a*16000)):int(b*16000)] for _,a,b in windows[start:start+16]]
-   inputs=extractor(clips,sampling_rate=16000,padding=True,return_attention_mask=True,return_tensors='pt')
-   with torch.no_grad():vectors+=list(model(**{k:v.to('cuda') for k,v in inputs.items()}).embeddings.float().cpu().numpy())
-  labels=cluster_speakers(vectors,SPEAKER_SIMILARITY)
-  assign_speakers(words,units,windows,labels,min_run=1.2)
-  return len({l for l in labels if l is not None})
- finally:
-  del model;gc.collect();torch.cuda.empty_cache()
+ install_once('voiceprint',VOICEPRINT_PIP);model=voiceprint_model(CACHE)
+ units=turn_units(words);spans=[(words[u[0]]['s']-0.1,words[u[-1]]['e']+0.1) for u in units]
+ with tempfile.TemporaryDirectory() as tmp:
+  raw=Path(tmp)/'voice.f32';audio.astype(np.float32).tofile(raw);(Path(tmp)/'spans.json').write_text(json.dumps(spans))
+  code='import sys;sys.path.insert(0,sys.argv[1]);import madar_colab_runtime as r;r.voiceprints_main(sys.argv[2:])'
+  subprocess.run([sys.executable,'-c',code,str(Path(__file__).resolve().parent),str(model),str(raw),str(Path(tmp)/'spans.json'),str(Path(tmp)/'v.npy')],check=True,timeout=1800,capture_output=True)
+  vectors=np.load(Path(tmp)/'v.npy')
+ durations=[b-a-0.2 for a,b in spans]
+ labels=cluster_speakers([v if np.any(v) else None for v in vectors],durations,SPEAKER_SIMILARITY,SPEAKER_ASSIGN)
+ return units,labels
 
 
 def dub_sounds(audio,words,report):
@@ -633,18 +630,16 @@ def dub_text(voice, target, report):
   for w in seg.words or []:words.append({'w':w.word,'s':float(w.start),'e':float(w.end),'seg':i})
   report('processing',f'تفريغ الكلام · وصلنا إلى {round(seg.end/60,1)} دقيقة')
  release_models()
- sounds=[];speakers=0;skipped=[]
+ sounds=[];speakers=0;skipped=[];units=labels=None
  if words:
   try:audio=mono16k(voice)
   except Exception:audio=None;skipped.append('audio')
   if audio is not None:
-   try:speakers=dub_speakers(audio,words,report)
-   except Exception as exc:
-    skipped.append('speakers:'+type(exc).__name__)
-    for w in words:w.pop('spk',None)
+   try:units,labels=dub_speakers(audio,words,report);speakers=len({l for l in labels if l is not None})
+   except Exception as exc:skipped.append('speakers:'+type(exc).__name__)
    try:sounds=dub_sounds(audio,words,report)
    except Exception as exc:skipped.append('sounds:'+type(exc).__name__)
- lines=group_dub_words(words,sounds);lang=info.language;note=''
+ lines=group_dub_words(words,sounds,units,labels);lang=info.language;note=''
  if target=='ar' and lines and lang!='ar':
   if lang in LANG:
    report('processing','ترجمة الجمل إلى العربية')
@@ -690,7 +685,11 @@ def warm(tool):
  if tool in {'separate','dub'}:step('separation',lambda:uvr(DUB_MODEL if tool=='dub' else MODEL))
  if tool in {'dub','asr'}:step('whisper',whisper)
  if tool=='dub':
-  for repo in (SPEAKER_MODEL,SOUND_MODEL):step(repo,lambda repo=repo:hub(repo,patterns=['*.json','*.safetensors','*.bin','*.txt']))
+  def voiceprint():
+   from madar_colab_runtime import VOICEPRINT_PIP,voiceprint_model
+   install_once('voiceprint',VOICEPRINT_PIP);voiceprint_model(CACHE)
+  step('voiceprint',voiceprint)
+  step(SOUND_MODEL,lambda:hub(SOUND_MODEL,patterns=['*.json','*.safetensors','*.bin','*.txt']))
  if tool=='translate':
   def nllb():
    install('translate',quiet);hub('facebook/nllb-200-distilled-600M','38bd1c6a0f58097b26ef7c7cd73a0dcac034350a',['*.json','model.safetensors','*.model'])

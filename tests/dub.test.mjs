@@ -16,9 +16,9 @@ test('the mix command really lays recordings at their times over the background 
  const db=at=>{const out=execFileSync('sh',['-c',`ffmpeg -hide_banner -ss ${at} -t 0.5 -i dubbed.mp4 -af volumedetect -f null - 2>&1 | grep mean_volume`],{cwd:d}).toString();return Number(/mean_volume: (-?[\d.]+)/.exec(out)[1]);};
  assert(db(1.7)>db(0.5)+10,'recording 1 audible at 1.5 s');assert(db(4.2)>db(3)+10,'recording 2 audible at 4 s');});
 test('the Colab server accepts every tool the page can run (dub included)',async()=>{const{COLAB_TOOLS}=await import('../src/colab-server.js');for(const t of cloudCatalog)assert(COLAB_TOOLS.includes(t.task),t.task);for(const t of['separate','download','dub'])assert(COLAB_TOOLS.includes(t));});
-test('lines from Colab are validated, sorted and never overlap; bad data falls back',async()=>{const{readLines}=await import('../src/dub-core.js');const enc=o=>new TextEncoder().encode(JSON.stringify(o));
+test('lines from Colab are validated, sorted (overlaps kept); bad data falls back',async()=>{const{readLines}=await import('../src/dub-core.js');const enc=o=>new TextEncoder().encode(JSON.stringify(o));
  const r=readLines(enc({language:'en',lines:[{start:3,end:4,text:'b',words:[{w:'b',s:3,e:3.5},{w:'x',s:'bad',e:1}]},{start:1,end:3.4,text:'a',tr:'أ'},{start:5,end:4,text:'reversed'},{start:-1,end:2}]}));
- assert.deepEqual(r.lines.map(l=>[l.start,l.end,l.text,l.tr]),[[1,3.4,'a','أ'],[3.4,4,'b',undefined]]);assert.equal(r.lines[1].words.length,1);
+ assert.deepEqual(r.lines.map(l=>[l.start,l.end,l.text,l.tr]),[[1,3.4,'a','أ'],[3,4,'b',undefined]]);assert.equal(r.lines[1].words.length,1);
  assert.deepEqual(readLines(undefined),{lines:[]});assert.equal(readLines(new TextEncoder().encode('{nope')).error,'bad json');assert.equal(readLines(enc({error:'GPU',lines:[]})).error,'GPU');});
 test('speaker numbers and laugh/pause marks reach the page; unknown marks are dropped',async()=>{const{readLines}=await import('../src/dub-core.js');const enc=o=>new TextEncoder().encode(JSON.stringify(o));
  const r=readLines(enc({speakers:2,lines:[{start:1,end:3,text:'دي ديمز (ضحكة)',spk:2,words:[{w:'دي',s:1,e:1.3},{w:'(ضحكة)',s:1.9,e:2.3,k:'sound'},{w:'…',s:1.3,e:1.9,k:'pause'},{w:'x',s:2.4,e:2.5,k:'<script>'}]},{start:4,end:5,text:'b',spk:'2'}]}));
@@ -31,3 +31,9 @@ test('merging two lines keeps both sentences, drops recordings and keeps a share
 test('early preparation is launched only for known tools with a fixed command',async()=>{const{warmCode,WARM_TOOLS}=await import('../src/colab-server.js');
  assert.deepEqual(WARM_TOOLS,['separate','dub','asr','translate']);const code=warmCode('dub');assert.match(code,/'service.py'\),'warm','dub'\]/);assert.match(code,/warm-dub\.json/);
  assert.throws(()=>warmCode("dub'];import os#"));assert.throws(()=>warmCode('ocr'));});
+test('a line is cut before a tapped word, both halves keep their words and the speaker',async()=>{const{splitLine}=await import('../src/dub-core.js');
+ const seg={start:10,end:14,text:'دي دامز دي دامز',spk:1,tr:'x',words:[{w:'دي',s:10,e:10.5},{w:'دامز',s:10.5,e:11},{w:'دي',s:11.8,e:12.2},{w:'دامز',s:12.2,e:13}]};
+ const[a,b]=splitLine(seg,2);assert.deepEqual([a.text,b.text,a.spk,b.spk,a.tr,b.tr],['دي دامز','دي دامز',1,1,undefined,undefined]);
+ assert(a.end<=b.start+0.11&&a.end>11&&b.start<11.8&&a.start===10&&b.end===14);assert.equal(splitLine(seg,0),null);assert.equal(splitLine(seg,4),null);});
+test('overlapping lines stay as they are (two characters can talk together)',async()=>{const{readLines}=await import('../src/dub-core.js');const enc=o=>new TextEncoder().encode(JSON.stringify(o));
+ const r=readLines(enc({lines:[{start:5,end:7,text:'b'},{start:1,end:6,text:'a'}]}));assert.deepEqual(r.lines.map(l=>[l.start,l.end,l.text]),[[1,6,'a'],[5,7,'b']]);});
