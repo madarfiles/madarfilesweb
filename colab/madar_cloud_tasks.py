@@ -550,3 +550,32 @@ def serve_translation_worker(device='cuda'):
 
 
 if __name__=='__main__' and sys.argv[1:]==['--translation-worker']:serve_translation_worker()
+
+
+def dub_text(voice, target, report):
+ """Speech-to-text for «دبلج» on the separated voice track, with the time of every word,
+ grouped into lines; optionally translated to Arabic so the visitor reads while recording."""
+ from madar_colab_runtime import group_dub_words
+ install('asr',report);cuda();report('processing','تفريغ الكلام وتوقيت كل كلمة')
+ preload_cuda();import onnxruntime as ort
+ if hasattr(ort,'preload_dlls'):ort.preload_dlls(directory='')
+ from faster_whisper import WhisperModel
+ import ctranslate2
+ supported=ctranslate2.get_supported_compute_types('cuda');compute=next((v for v in ['float16','int8_float16','float32'] if v in supported),None)
+ if not compute:raise RuntimeError('CUDA_COMPUTE_UNSUPPORTED')
+ model=cached_model('whisper-'+compute,lambda:load_model(lambda:WhisperModel('large-v3-turbo',device='cuda',compute_type=compute),report),report)
+ segments,info=model.transcribe(str(voice),language=None,vad_filter=True,beam_size=5,word_timestamps=True)
+ words=[]
+ for i,seg in enumerate(segments):
+  for w in seg.words or []:words.append({'w':w.word,'s':float(w.start),'e':float(w.end),'seg':i})
+  report('processing',f'تفريغ الكلام · وصلنا إلى {round(seg.end/60,1)} دقيقة')
+ lines=group_dub_words(words);lang=info.language;note=''
+ if target=='ar' and lines and lang!='ar':
+  if lang in LANG:
+   report('processing','ترجمة الجمل إلى العربية')
+   try:
+    for line,text in zip(lines,translate_lines([l['text'] for l in lines],lang,'ar',report)):line['tr']=text
+   finally:stop_translator()
+  else:note='الترجمة للعربي غير متاحة لهذه اللغة؛ يظهر النص بلغته الأصلية'
+ release_models()
+ return {'language':lang,'target':target,'lines':lines,'note':note}

@@ -145,7 +145,19 @@ def main():
                 def flush(self): sys.__stdout__.flush()
             sys.stdout = ProgressLog()
             if cfg.get('task') == 'dub':
-                output = runtime.run_dub_stems(source)
+                def dub_lines(voice, work):
+                    # Text is a helper: if it fails the visitor still gets the stems and can dub.
+                    if cfg.get('textLang', 'none') == 'none':
+                        return []
+                    try:
+                        from madar_cloud_tasks import dub_text
+                        data = dub_text(voice, cfg['textLang'], status)
+                    except Exception as exc:
+                        data = {'error': (str(exc) or type(exc).__name__)[:300], 'lines': []}
+                    target = work/'lines.json'
+                    target.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8')
+                    return [target]
+                output = runtime.run_dub_stems(source, extra=dub_lines)
             else:
                 output = runtime.run_separation(source, cfg['start'], cfg['duration'], cfg['mode'], **({'output_format':cfg['outputFormat']} if cfg.get('outputFormat') else {}))
             sys.stdout = sys.__stdout__
