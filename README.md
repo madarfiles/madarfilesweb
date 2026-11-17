@@ -203,3 +203,7 @@ Recent tools now move using floating-point translate3d coordinates rather than w
 Local, Colab and Drive media inputs now show separate image/video/audio/PDF choices when a tool supports more than one category. Each button requests one MIME category. Native showPicker is preferred, with click fallback. Local selections use fresh input elements and selected-kind checks run before tool handlers. PDF still requests application/pdf, but a website cannot force Android's documents picker to resemble a photo gallery. No guarantee is made about an untested Android native picker.
 
 Validation: 89 JavaScript tests, including separate category filters, native picker fallback and frame-rate-independent subpixel inertia; UI checks verified category choices in local audio, Colab separation and conversion tools. Android motion/picker behavior requires device verification.
+
+## Netlify build variables
+
+- `MADAR_CONTACT_EMAIL`: contact address shown on `/privacy` (required for the Google OAuth Branding page). Without it the page links to the GitHub project instead.
