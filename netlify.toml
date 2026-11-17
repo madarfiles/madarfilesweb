@@ -2,6 +2,7 @@
   command = "npm run build:netlify"
   publish = "netlify-public"
   functions = "netlify/functions"
+  ignore = "sh scripts/netlify-ignore.sh"
 [build.environment]
   NODE_VERSION = "24"
 [functions]

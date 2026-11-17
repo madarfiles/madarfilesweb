@@ -202,9 +202,9 @@ def session_from_separator(separator):
     raise RuntimeError('لم يتفعّل CUDA فعليًا؛ لا توجد عودة إلى CPU في هذا الدفتر')
 
 
-def new_separator(output_dir):
+def new_separator(output_dir, single_stem='Vocals'):
     from audio_separator.separator import Separator
-    obj = Separator(output_dir=str(output_dir), model_file_dir=str(CACHE), output_format='WAV', output_single_stem='Vocals', use_soundfile=True,
+    obj = Separator(output_dir=str(output_dir), model_file_dir=str(CACHE), output_format='WAV', output_single_stem=single_stem, use_soundfile=True,
                     log_level=logging.WARNING, mdx_params={'hop_length':1024, 'segment_size':256, 'overlap':0.25, 'batch_size':1, 'enable_denoise':False})
     obj.load_model(model_filename=MODEL)
     session_from_separator(obj)
@@ -332,6 +332,62 @@ def run_separation(source, start=0, duration=0, mode='audio', output_format=None
             output = audio
         print('اكتمل:',output,'·',round(output.stat().st_size/1024**2,1),'MB')
         return output
+    finally:
+        del separator
+        gc.collect()
+
+
+def run_dub_stems(source):
+    """Dubbing preparation: split the whole source into the human voice and everything else
+    (ambient sound, effects, music). Both stems come back sample-aligned in one ZIP so the
+    browser can find speech timings from voice.m4a and mix new recordings over background.m4a."""
+    import zipfile
+    source = Path(source).resolve()
+    if not source.is_file() or source.stat().st_size == 0:
+        raise ValueError('المصدر غير موجود أو فارغ')
+    total = duration_of(source)
+    if total > 30*60:
+        raise ValueError('حد الدبلجة 30 دقيقة للمقطع؛ اختر مقطعًا أقصر')
+    plan = chunk_plan(total, chunk_seconds=CHUNK_SECONDS)
+    if shutil.disk_usage(ROOT).free < 2*1024**3:
+        raise RuntimeError('مساحة Colab المتبقية أقل من 2 GB')
+    work = ROOT/('dub-'+source_fingerprint(source, 0, 0, 'audio'))
+    work.mkdir(parents=True, exist_ok=True)
+    print('تجهيز الدبلجة · عدد الأجزاء:', len(plan), '· المدة:', round(total, 1), 'ثانية', flush=True)
+    separator = new_separator(work, single_stem=None)
+    voices, backgrounds = [], []
+    try:
+        for index, (at, seconds) in enumerate(plan):
+            print(f'{index+1}/{len(plan)} · فصل الأصوات البشرية عن المحيط على GPU', flush=True)
+            raw = work/f'chunk_{index:05d}.wav'
+            try:
+                ffmpeg(['-ss', at, '-i', source, '-t', seconds, '-map', '0:a:0', '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', raw])
+                names = separator.separate(str(raw), custom_output_names={'Vocals': f'voice_{index:05d}', 'Instrumental': f'bg_{index:05d}'})
+                found = {}
+                for name in names or []:
+                    path = Path(name)
+                    path = path if path.is_absolute() else work/path
+                    if path.name.startswith('voice_'): found['voice'] = path
+                    elif path.name.startswith('bg_'): found['bg'] = path
+                if set(found) != {'voice', 'bg'} or not all(p.is_file() for p in found.values()):
+                    raise RuntimeError('لم يُنتج نموذج الفصل مساري الصوت والمحيط')
+                voices.append(found['voice']); backgrounds.append(found['bg'])
+            finally:
+                raw.unlink(missing_ok=True)
+        outputs = []
+        for label, parts in (('voice', voices), ('background', backgrounds)):
+            listing = work/f'{label}_list.txt'
+            listing.write_text(''.join("file '"+str(p)+"'\n" for p in parts))
+            target = work/f'{label}.m4a'
+            print('جمع ' + ('مسار الكلام' if label == 'voice' else 'مسار المحيط') + '…', flush=True)
+            ffmpeg(['-f', 'concat', '-safe', '0', '-i', listing, '-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', target])
+            outputs.append(target)
+        bundle = work/'dub.zip'
+        with zipfile.ZipFile(bundle, 'w', zipfile.ZIP_STORED) as z:
+            for path in outputs:
+                z.write(path, path.name)
+        print('اكتمل تجهيز الدبلجة:', round(bundle.stat().st_size/1024**2, 1), 'MB', flush=True)
+        return bundle
     finally:
         del separator
         gc.collect()
