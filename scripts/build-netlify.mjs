@@ -1,5 +1,5 @@
 import {build} from 'esbuild';import{readFile,writeFile,mkdir,copyFile,rm}from'node:fs/promises';
-import{execFileSync}from'node:child_process';
+import{execFileSync}from'node:child_process';import{createHash}from'node:crypto';import{netlifyStaticHeaders,renderServiceWorker,SW_SHELL,FFMPEG_CORE_VERSION}from'../src/netlify-static.js';
 // The original Sites build remains separate; only this target is deployed to Netlify.
 execFileSync(process.execPath,['scripts/build.mjs'],{stdio:'inherit'});
 const target='netlify-public';await rm(target,{recursive:true,force:true});await mkdir(target,{recursive:true});
@@ -12,5 +12,9 @@ for(const name of ['icon.svg','apple-touch-icon.png','licenses.html'])await copy
 await copyFile('colab/Madar_Colab_Separation.ipynb',target+'/Madar_Colab_Separation.ipynb');
 await writeFile(target+'/ffmpeg-worker.js',await pack('node_modules/@ffmpeg/ffmpeg/dist/esm/worker.js'));await copyFile('node_modules/pdfjs-dist/build/pdf.worker.min.mjs',target+'/pdf-worker.js');await mkdir(target+'/runtime');for(const name of ['ffmpeg-core.js','ffmpeg-core.wasm'])await copyFile('node_modules/@ffmpeg/core/dist/esm/'+name,target+'/runtime/'+name);
 await writeFile(target+'/manifest.webmanifest',JSON.stringify({id:'/',name:'مدار الملفات',short_name:'مدار',lang:'ar',dir:'rtl',start_url:'/',scope:'/',display:'standalone',background_color:'#f8f6f1',theme_color:'#283c3b',icons:[{src:'/apple-touch-icon.png',sizes:'180x180',type:'image/png'},{src:'/icon.svg',sizes:'any',type:'image/svg+xml'}]}));
-const headers=JSON.parse(await readFile('src/headers.json','utf8'));await writeFile(target+'/_headers','/*\n'+Object.entries(headers).map(([k,v])=>'  '+k+': '+v).join('\n')+'\n  X-Robots-Tag: noindex, nofollow\n');
+const headers=JSON.parse(await readFile('src/headers.json','utf8'));await writeFile(target+'/_headers',netlifyStaticHeaders(headers));
+const coreVersion=JSON.parse(await readFile('node_modules/@ffmpeg/core/package.json','utf8')).version;if(coreVersion!==FFMPEG_CORE_VERSION)throw Error('FFMPEG_CORE_VERSION '+FFMPEG_CORE_VERSION+' does not match installed @ffmpeg/core '+coreVersion);
+if(!(await readFile('src/extra-tools.js','utf8')).includes('ffmpeg-core.wasm?v='+coreVersion))throw Error('extra-tools.js must load the FFmpeg engine with ?v='+coreVersion);
+const shellHash=createHash('sha256');for(const path of SW_SHELL)shellHash.update(await readFile(target+(path==='/'?'/index.html':path)));
+await writeFile(target+'/sw.js',renderServiceWorker(await readFile('src/sw.js','utf8'),shellHash.digest('hex').slice(0,16)));
 console.log('Netlify public package prepared; cloud authorization uses each visitor’s own provider grant.');
