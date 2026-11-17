@@ -55,7 +55,7 @@ export function mountDub(content,{onResult}){
 
  // Step 3: extract the audio locally (small upload), then Colab splits voice / background.
  q('#dubStart').onclick=()=>guard(async()=>{
-  if(!video)throw Error('اختر الفيديو أولًا');stems=null;go('split');const say=t=>q('#dubSplitStatus').textContent=t;say('نجهز صوت الفيديو في جهازك…');
+  if(!video)throw Error('اختر الفيديو أولًا');stems=null;go('split');colab.steps?.go('run',{scroll:false});const say=t=>q('#dubSplitStatus').textContent=t;say('نجهز صوت الفيديو في جهازك…');
   const ff=await engine(p=>say('نجهز صوت الفيديو في جهازك · '+p+'٪'));
   try{await ff.writeFile('video.bin',new Uint8Array(await video.arrayBuffer()));const code=await ff.exec(['-i','video.bin','-map','0:a:0','-vn','-ac','2','-ar','44100','-c:a','aac','-b:a','192k','audio.m4a']);if(code!==0)throw Error('ما قدرنا نقرأ صوت هذا الفيديو؛ تأكد إن فيه صوت');
    const audio=new File([await ff.readFile('audio.m4a')],base(video.name)+'-صوت.m4a',{type:'audio/mp4'});say('نرفع الصوت ('+(audio.size/1048576).toFixed(1)+' MB) ونفصله على Colab…');const lang=host.querySelector('#cloud-textLang');if(lang)lang.value=q('#dubTextLang').value;colab.load([audio]);colab.run();
@@ -135,9 +135,12 @@ export function mountDub(content,{onResult}){
    let out='dubbed.mp4',code=await ff.exec(mixArguments(clips,{output:out}));if(code!==0){out='dubbed.mkv';code=await ff.exec(mixArguments(clips,{output:out}));}
    if(code!==0)throw Error('تعذر دمج الفيديو؛ جرّب مقطعًا أقصر');
    const blob=new Blob([await ff.readFile(out)],{type:out.endsWith('mp4')?'video/mp4':'video/x-matroska'}),name=base(video.name)+'-مدبلج.'+out.split('.').pop();
-   const saved=onResult?.(blob,name,'video'),url=saved?.url||track(URL.createObjectURL(blob));
-   const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;v.className='dub-video';const a=document.createElement('a');a.href=url;a.download=name;a.className='button full';a.textContent='حفظ الفيديو المدبلج';
-   q('#dubResult').replaceChildren(v,a);status('اكتملت الدبلجة 🎉');
+   // The page's own result box («النتيجة جاهزة للمعاينة» + «حفظ النتيجة») shows the video once;
+   // a second player here only repeated it. Without that box (tool opened elsewhere) we show it here.
+   const saved=onResult?.(blob,name,'video');
+   if(saved?.url){q('#dubResult').replaceChildren();status('اكتملت الدبلجة 🎉 عاين الفيديو تحت واحفظه');setTimeout(()=>document.getElementById('universalResult')?.scrollIntoView({behavior:'smooth',block:'start'}),300);}
+   else{const url=track(URL.createObjectURL(blob));const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;v.className='dub-video';const a=document.createElement('a');a.href=url;a.download=name;a.className='button full';a.textContent='حفظ الفيديو المدبلج';
+    q('#dubResult').replaceChildren(v,a);status('اكتملت الدبلجة 🎉');}
   }finally{ff.terminate();}
  });
  const picker=mountFilePicker(q('#dubFile'),{accept:'video/*'});

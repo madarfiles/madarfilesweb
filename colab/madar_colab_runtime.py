@@ -371,7 +371,36 @@ def _ends_sentence(word):
     return str(word.get('w', '')).rstrip().rstrip('"\'»)').endswith(SENTENCE_END)
 
 
-def group_dub_words(words, sounds=(), long_gap=2.0, max_len=20.0, pause_mark=0.7, attach=0.6, pad_start=0.05, pad_end=0.12):
+def _speaker(chunk):
+    voices = [w.get('spk') for w in chunk if w.get('spk') is not None]
+    return max(set(voices), key=voices.count) if voices else None
+
+
+def merge_fragments(lines, words=2, seconds=0.6, gap=0.8, back_gap=2.0):
+    """A piece of one or two words (or under a second) is almost always part of a sentence that
+    was cut, not a sentence of its own, so it joins its neighbour: the line before it when that
+    line has not ended its sentence, otherwise the line after it when this piece has not ended
+    its own sentence and the next line is the same (or an unknown) speaker. A full reply such as
+    «نعم يا أمي.» keeps its own line."""
+    lines = [list(l) for l in lines]
+    i = 0
+    while i < len(lines):
+        cur = lines[i]
+        short = len(cur) <= words or cur[-1]['e'] - cur[0]['s'] < seconds
+        if short:
+            prev = lines[i-1] if i > 0 else None
+            nxt = lines[i+1] if i + 1 < len(lines) else None
+            same = lambda other: _speaker(cur) is None or _speaker(other) is None or _speaker(cur) == _speaker(other)
+            # A short piece that ends its own sentence with another voice is a reply («نعم.»).
+            if prev and not _ends_sentence(prev[-1]) and cur[0]['s'] - prev[-1]['e'] < back_gap and (same(prev) or not _ends_sentence(cur[-1])):
+                prev.extend(cur); del lines[i]; i = max(i - 1, 0); continue
+            if nxt and not _ends_sentence(cur[-1]) and nxt[0]['s'] - cur[-1]['e'] < gap and same(nxt):
+                cur.extend(nxt); del lines[i+1]; continue
+        i += 1
+    return lines
+
+
+def group_dub_words(words, sounds=(), pause_turn=0.0, long_gap=2.0, max_len=20.0, pause_mark=0.7, attach=0.6, pad_start=0.05, pad_end=0.12):
     """Turns Whisper word timings into dubbing lines that a performer can say in one breath.
     A line is a whole sentence of one speaker: it ends at a sentence end, when the speaker
     changes ('spk' on the words, from voice embeddings), or at a very long silence. Short
@@ -388,7 +417,10 @@ def group_dub_words(words, sounds=(), long_gap=2.0, max_len=20.0, pause_mark=0.7
     for w in words:
         if cur:
             prev = cur[-1]; pause = w['s'] - prev['e']
-            turn = known and w.get('spk') is not None and prev.get('spk') is not None and w['spk'] != prev['spk']
+            # Voice labels are noisy (one person can look like two), so a new speaker only
+            # starts a line where there is also a real break: a pause or a new Whisper segment.
+            turn = (known and w.get('spk') is not None and prev.get('spk') is not None and w['spk'] != prev['spk']
+                    and (pause >= pause_turn or w.get('seg') != prev.get('seg')))
             # Without speaker labels a new Whisper segment after a real breath is the best
             # remaining hint of a new sentence or speaker.
             segment = w.get('seg') != prev.get('seg') and pause >= (0.3 if known else 0.15)
@@ -396,6 +428,7 @@ def group_dub_words(words, sounds=(), long_gap=2.0, max_len=20.0, pause_mark=0.7
                 close()
         cur.append(w)
     close()
+    lines = merge_fragments(lines)
     out = []
     def split(chunk):
         if chunk[-1]['e'] - chunk[0]['s'] <= max_len or len(chunk) < 2:
@@ -582,19 +615,17 @@ SOUND_LABELS = [
 SPEECH_LABELS = ['Speech', 'Child speech, kid speaking', 'Conversation', 'Narration, monologue', 'Babbling', 'Male speech, man speaking', 'Female speech, woman speaking']
 
 
+SOUND_MARK = '…'
+
+
 def name_sound(scores, seconds, min_sound=0.1, min_speech=0.3):
-    """Arabic name for a short non-word vocal sound from AudioSet scores {label: probability}.
-    A short speech-like sound with no words is a filler such as «أمم» / «آه»."""
-    best, value = None, min_sound
-    for name, labels in SOUND_LABELS:
-        p = max((scores.get(l, 0.0) for l in labels), default=0.0)
-        if p >= value:
-            best, value = name, p
-    if best:
-        return best
-    if max((scores.get(l, 0.0) for l in SPEECH_LABELS), default=0.0) >= min_speech:
-        return 'آه/أمم' if seconds <= 1.5 else 'كلام غير واضح'
-    return None
+    """Mark for a non-word sound made by a person (laugh, hum, sigh, «أمم»…), from AudioSet
+    scores {label: probability}. The sound is not named — naming it was often wrong (a squeal
+    shown as crying) — the performer only needs to know something other than words is there.
+    Music, effects and other leftovers on the voice track get None."""
+    vocal = max((scores.get(l, 0.0) for _, labels in SOUND_LABELS for l in labels), default=0.0)
+    speech = max((scores.get(l, 0.0) for l in SPEECH_LABELS), default=0.0)
+    return SOUND_MARK if vocal >= min_sound or speech >= min_speech else None
 
 
 def sound_regions(samples, rate, words, frame=0.03, min_len=0.25, join=0.25, guard=0.08):

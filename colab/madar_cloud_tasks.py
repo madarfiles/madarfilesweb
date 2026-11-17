@@ -558,9 +558,10 @@ if __name__=='__main__' and sys.argv[1:]==['--translation-worker']:serve_transla
 # the performer should make. Both are optional: if either fails the lines are still made.
 SPEAKER_MODEL='microsoft/wavlm-base-plus-sv'
 SOUND_MODEL='MIT/ast-finetuned-audioset-10-10-0.4593'
-# WavLM x-vectors of one voice usually agree above ~0.86; cartoon voices, effects and leftover
-# music lower that, so pieces join a speaker from 0.82 (average similarity to the group).
-SPEAKER_SIMILARITY=0.82
+# WavLM x-vectors of one voice usually agree above ~0.86, but cartoon voices, effects and leftover
+# music lower that a lot: at 0.82 one person split into several «speakers» (94 lines for a 3 min
+# clip), so pieces join a speaker from 0.72 and a speaker run must last 1.2 s to count.
+SPEAKER_SIMILARITY=0.72
 
 
 def mono16k(path):
@@ -584,7 +585,7 @@ def dub_speakers(audio,words,report):
    inputs=extractor(clips,sampling_rate=16000,padding=True,return_attention_mask=True,return_tensors='pt')
    with torch.no_grad():vectors+=list(model(**{k:v.to('cuda') for k,v in inputs.items()}).embeddings.float().cpu().numpy())
   labels=cluster_speakers(vectors,SPEAKER_SIMILARITY)
-  assign_speakers(words,units,windows,labels,min_run=0.8)
+  assign_speakers(words,units,windows,labels,min_run=1.2)
   return len({l for l in labels if l is not None})
  finally:
   del model;gc.collect();torch.cuda.empty_cache()
@@ -597,7 +598,7 @@ def dub_sounds(audio,words,report):
  if not regions:return []
  torch=cuda()
  from transformers import AutoFeatureExtractor,ASTForAudioClassification
- report('processing','البحث عن الضحك والهمهمة والأصوات اللي مو كلام')
+ report('processing','البحث عن الضحك والأصوات اللي مو كلام')
  extractor=load_model(lambda:AutoFeatureExtractor.from_pretrained(SOUND_MODEL,trust_remote_code=False),report)
  model=load_model(lambda:ASTForAudioClassification.from_pretrained(SOUND_MODEL,trust_remote_code=False),report).to('cuda').eval()
  try:

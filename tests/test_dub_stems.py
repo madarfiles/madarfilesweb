@@ -64,11 +64,12 @@ class DubLines(unittest.TestCase):
   self.assertEqual(m.group_dub_words([]),[])
  def test_laughs_join_the_nearest_line_in_time_order_and_far_sounds_get_their_own_line(self):
   W=self.W;words=[W('دي',1.0,1.3),W('ديمز',1.3,1.8),W('أنا',2.6,2.9,1),W('سآخذ',2.9,3.3,1),W('هذا',3.3,3.6,1)]
-  lines=m.group_dub_words(words,[{'s':1.9,'e':2.3,'label':'ضحكة'},{'s':9.0,'e':9.6,'label':'تنهيدة'}])
-  self.assertEqual([l['text'] for l in lines],['دي ديمز (ضحكة)','أنا سآخذ هذا','(تنهيدة)'])
-  self.assertEqual(lines[0]['say'],'دي ديمز');self.assertEqual(lines[0]['words'][-1],{'w':'(ضحكة)','s':1.9,'e':2.3,'k':'sound'})
+  lines=m.group_dub_words(words,[{'s':1.9,'e':2.3,'label':'…'},{'s':9.0,'e':9.6,'label':'…'}])
+  self.assertEqual([l['text'] for l in lines],['دي ديمز (…)','أنا سآخذ هذا','(…)'])
+  self.assertEqual(lines[0]['say'],'دي ديمز');self.assertEqual(lines[0]['words'][-1],{'w':'(…)','s':1.9,'e':2.3,'k':'sound'})
   self.assertGreaterEqual(lines[0]['end'],2.3)
 class DubVoices(unittest.TestCase):
+ W=lambda self,w,s,e,seg=0:{'w':w,'s':s,'e':e,'seg':seg}
  def test_speaker_embeddings_cluster_into_people_numbered_by_first_appearance(self):
   import numpy as np
   a,b=np.array([1.0,0.1,0]),np.array([0,0.2,1.0])
@@ -81,12 +82,21 @@ class DubVoices(unittest.TestCase):
   m.assign_speakers(words,units,windows,labels,min_run=0.6)
   got=[w['spk'] for w in words];self.assertNotIn(2,got,'the 0.2 s blip of speaker 2 joins a neighbour');self.assertEqual(got[:4],[1]*4);self.assertEqual(got[-2:],[3,3])
   wins=m.speech_windows(words,units);self.assertEqual(len(wins),8);self.assertAlmostEqual(wins[-1][2]-wins[-1][1],1.2)
- def test_sounds_are_named_in_arabic_and_quiet_or_unclear_ones_are_skipped(self):
-  self.assertEqual(m.name_sound({'Giggle':0.4,'Speech':0.9},0.6),'ضحكة')
-  self.assertEqual(m.name_sound({'Humming':0.2},1.0),'همهمة')
-  self.assertEqual(m.name_sound({'Speech':0.7},0.8),'آه/أمم')
-  self.assertEqual(m.name_sound({'Speech':0.7},3.0),'كلام غير واضح')
+ def test_sounds_made_by_people_get_a_plain_mark_and_music_or_quiet_ones_are_skipped(self):
+  for scores in ({'Giggle':0.4},{'Humming':0.2},{'Crying, sobbing':0.3},{'Speech':0.7}):self.assertEqual(m.name_sound(scores,0.8),'…',scores)
   self.assertIsNone(m.name_sound({'Music':0.9,'Laughter':0.05},1.0))
+ def test_cut_pieces_rejoin_their_sentence_but_a_full_reply_keeps_its_line(self):
+  W=self.W
+  words=[W('وانت',7.2,7.6),W('شقيق',7.6,8.0),W('واسمك',8.0,8.6),W('بديدامس',10.0,10.9,1),W('نعم',12.0,12.3,2),W('يا',12.3,12.4,2),W('أمي.',12.4,12.9,2),W('نعم.',13.2,13.5,3)]
+  for w,s in zip(words,[1,1,1,1,2,2,2,1]):w['spk']=s
+  lines=m.group_dub_words(words)
+  self.assertEqual([l['say'] for l in lines],['وانت شقيق واسمك بديدامس','نعم يا أمي.','نعم.'])
+  self.assertIn('…',lines[0]['text'])
+ def test_a_speaker_blip_inside_one_breath_does_not_cut_the_sentence_without_a_break(self):
+  W=self.W;words=[W(x,i*0.5,i*0.5+0.5) for i,x in enumerate('abcdef')]
+  for w,s in zip(words,[1,1,1,2,2,2]):w['spk']=s
+  self.assertEqual(len(m.group_dub_words(words,pause_turn=0.1)),1)
+  self.assertEqual(len(m.group_dub_words(words)),2,'with no pause rule a confident change still cuts')
  def test_sound_regions_are_voice_energy_not_covered_by_any_word(self):
   import numpy as np
   rate=16000;t=np.arange(rate*4)/rate;x=np.zeros_like(t,dtype=np.float32)
