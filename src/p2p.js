@@ -4,6 +4,7 @@
 import QRCode from 'qrcode';
 import {pickerAccept,requireAccepted,mountFilePicker} from './file-picker.js';
 import {mountDriveQR} from './drive-qr.js';
+import {wireSave} from './save-file.js';
 
 export const P2P_MAX=1024*1048576;
 const ICE={iceServers:[{urls:['stun:stun.l.google.com:19302','stun:stun1.l.google.com:19302']}]};
@@ -94,6 +95,6 @@ export function startReceiveFromLocation(){
  .then(({blob,name,type})=>{url=URL.createObjectURL(blob);const box=dialog.querySelector('.p2p-result'),items=[];
   if(type.startsWith('image/')){const img=document.createElement('img');img.src=url;img.alt=name;img.className='design-preview';items.push(img);}
   else if(type.startsWith('video/')||type.startsWith('audio/')){const media=document.createElement(type.startsWith('video/')?'video':'audio');media.src=url;media.controls=true;media.className='design-preview';items.push(media);}
-  const a=document.createElement('a');a.href=url;a.download=name;a.className='button full';a.textContent='حفظ الملف في جهازك';items.push(a);box.replaceChildren(...items);bar.hidden=true;status.textContent='وصل الملف كاملًا ✓';})
+  const a=document.createElement('a');a.href=url;a.download=name;a.className='button full';a.textContent='حفظ الملف في جهازك';wireSave(a,blob,name);items.push(a);box.replaceChildren(...items);bar.hidden=true;status.textContent='وصل الملف كاملًا ✓';})
  .catch(e=>{if(!abort.signal.aborted)status.textContent=e.message;});
 }

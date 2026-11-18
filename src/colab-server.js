@@ -59,7 +59,7 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
  const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{...security,'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'}});
  try{
   const action=new URL(request.url).pathname.slice('/api/colab/'.length);
-  if(!['check','create','operation','stop','prepare','upload','run','status','download','closeall','pulse','sessions','config'].includes(action))throw new PublicError('غير موجود',404);
+  if(!['check','create','operation','stop','prepare','upload','run','status','download','closeall','pulse','sessions','config','warm'].includes(action))throw new PublicError('غير موجود',404);
   if(request.method!=='POST')throw new PublicError('طريقة غير مسموحة',405);
   if(!request.headers.get('oai-authenticated-user-id'))throw new PublicError('سجّل الدخول إلى مدار أولًا',401);
   if(request.headers.get('Origin')!==new URL(request.url).origin)throw new PublicError('مصدر الطلب غير مسموح',403);
@@ -111,12 +111,15 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
   const put=(file,content,format='text')=>jup('PUT','api/contents/'+jobPath+'/'+file,{type:'file',format,content});
   // Early preparation: while the file uploads, the session installs the tool's libraries and
   // downloads its models in the background. Best effort: a failure here never blocks the tool.
-  const warmTool=async(kernelId,tool)=>{try{
-   const session=crypto.randomUUID();const r=await fetcher(new URL('api/kernels/'+kernelId+'/channels?session_id='+session,base).href,{headers:{...headers,Origin:base.origin,Upgrade:'websocket'},redirect:'manual',signal});
-   if(r.status>=300&&r.status<400||!r.webSocket){await r.body?.cancel?.();return;}
-   await execute(r.webSocket,warmCode(tool),signal,session);
-  }catch{}};
-  if(action==='prepare'){const ks=await jup('GET','api/kernelspecs');const name=ks.default||'python3';if(!/^[A-Za-z0-9_.-]{1,80}$/.test(name))throw new PublicError('محرك Python غير صالح',502);const list=await jup('GET','api/kernels');const kernel=Array.isArray(list)&&list.find(k=>k.name===name&&k.execution_state!=='dead')||await jup('POST','api/kernels',{name});if(!/^[A-Za-z0-9-]{1,100}$/.test(kernel.id))throw new PublicError('معرّف Python غير صالح',502);await jup('PUT','api/contents/madar_web',{type:'directory'});if(b.jobId){await jup('PUT','api/contents/madar_web/jobs',{type:'directory'});await jup('PUT','api/contents/'+jobPath,{type:'directory'});}await Promise.all([['runner.py',jobSource],['madar_colab_runtime.py',engineSource],['madar_download.py',downloadSource],['madar_cloud_tasks.py',cloudSource],['service.py',serviceSource],['madar_captions.py',captionSource],...(['asr','burn'].includes(b.tool)?[['madar_fonts.py',fontSource]]:[])].map(([name,content])=>jup('PUT','api/contents/madar_web/'+name,{type:'file',format:'text',content})));if(b.tool)await jup('PUT','api/contents/madar_web/lease.json',{type:'file',format:'text',content:JSON.stringify({updated:Date.now()/1000})});if(WARM_TOOLS.includes(b.tool))await warmTool(kernel.id,b.tool);return json({kernel:kernel.id,gpu:runtime.runtimeSpec?.variant==='VARIANT_CPU'?'CPU':runtime.runtimeSpec?.accelerator,shape:runtime.runtimeSpec?.shape});}
+  const warmTool=async(kernelId,tool,limit)=>{const stop=AbortSignal.any([signal,AbortSignal.timeout(limit)].filter(Boolean));try{
+   const session=crypto.randomUUID();const r=await fetcher(new URL('api/kernels/'+kernelId+'/channels?session_id='+session,base).href,{headers:{...headers,Origin:base.origin,Upgrade:'websocket'},redirect:'manual',signal:stop});
+   if(r.status>=300&&r.status<400||!r.webSocket){await r.body?.cancel?.();return false;}
+   await execute(r.webSocket,warmCode(tool),stop,session);return true;
+  }catch{return false;}};
+  if(action==='prepare'){const ks=await jup('GET','api/kernelspecs');const name=ks.default||'python3';if(!/^[A-Za-z0-9_.-]{1,80}$/.test(name))throw new PublicError('محرك Python غير صالح',502);const list=await jup('GET','api/kernels');const kernel=Array.isArray(list)&&list.find(k=>k.name===name&&k.execution_state!=='dead')||await jup('POST','api/kernels',{name});if(!/^[A-Za-z0-9-]{1,100}$/.test(kernel.id))throw new PublicError('معرّف Python غير صالح',502);await jup('PUT','api/contents/madar_web',{type:'directory'});if(b.jobId){await jup('PUT','api/contents/madar_web/jobs',{type:'directory'});await jup('PUT','api/contents/'+jobPath,{type:'directory'});}await Promise.all([['runner.py',jobSource],['madar_colab_runtime.py',engineSource],['madar_download.py',downloadSource],['madar_cloud_tasks.py',cloudSource],['service.py',serviceSource],['madar_captions.py',captionSource],...(['asr','burn'].includes(b.tool)?[['madar_fonts.py',fontSource]]:[])].map(([name,content])=>jup('PUT','api/contents/madar_web/'+name,{type:'file',format:'text',content})));if(b.tool)await jup('PUT','api/contents/madar_web/lease.json',{type:'file',format:'text',content:JSON.stringify({updated:Date.now()/1000})});return json({kernel:kernel.id,gpu:runtime.runtimeSpec?.variant==='VARIANT_CPU'?'CPU':runtime.runtimeSpec?.accelerator,shape:runtime.runtimeSpec?.shape});}
+  // Early preparation runs in its own request (never inside prepare: a slow kernel channel there
+  // pushed prepare past Netlify's 30 s limit and broke every tool). Hard cap 15 s, best effort.
+  if(action==='warm'){if(!WARM_TOOLS.includes(b.tool)||typeof b.kernel!=='string'||!/^[A-Za-z0-9-]{1,100}$/.test(b.kernel))throw new PublicError('طلب غير صالح');const ok=await warmTool(b.kernel,b.tool,15000);return json({started:ok});}
   if(action==='upload'){if(!Number.isSafeInteger(b.index)||b.index<0||b.index>255||typeof b.data!=='string'||b.data.length>2796204||! /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(b.data)||!b.data)throw new PublicError('جزء رفع غير صالح');const part='input_'+String(b.index).padStart(5,'0')+'.bin';
    // 404 here means a stale connection address or a job folder that is gone: refresh the
    // runtime address, recreate the folders, and try the part once more.

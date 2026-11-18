@@ -6,6 +6,7 @@ import {cloudCatalog} from './cloud-catalog.js';
 import {detectSegments,clock,mixArguments,recordingExt,readLines,mergeLines,splitLine,speakerColor} from './dub-core.js';
 import {pickerAccept,requireAccepted,mountFilePicker} from './file-picker.js';
 import {sourceName} from './output-names.js';
+import {wireSave} from './save-file.js';
 
 const base=n=>sourceName(n).replace(/\.[A-Za-z0-9]{1,5}$/,''),MAX_VIDEO=300*1048576;
 const ENGINE={classWorkerURL:'/ffmpeg-worker.js',coreURL:'/runtime/ffmpeg-core.js?v=0.12.10',wasmURL:'/runtime/ffmpeg-core.wasm?v=0.12.10'};
@@ -169,7 +170,7 @@ export function mountDub(content,{onResult}){
    // a second player here only repeated it. Without that box (tool opened elsewhere) we show it here.
    const saved=onResult?.(blob,name,'video');
    if(saved?.url){q('#dubResult').replaceChildren();status('اكتملت الدبلجة 🎉 عاين الفيديو تحت واحفظه');setTimeout(()=>document.getElementById('universalResult')?.scrollIntoView({behavior:'smooth',block:'start'}),300);}
-   else{const url=track(URL.createObjectURL(blob));const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;v.className='dub-video';const a=document.createElement('a');a.href=url;a.download=name;a.className='button full';a.textContent='حفظ الفيديو المدبلج';
+   else{const url=track(URL.createObjectURL(blob));const v=document.createElement('video');v.src=url;v.controls=true;v.playsInline=true;v.className='dub-video';const a=document.createElement('a');a.href=url;a.download=name;a.className='button full';a.textContent='حفظ الفيديو المدبلج';wireSave(a,blob,name);
     q('#dubResult').replaceChildren(v,a);status('اكتملت الدبلجة 🎉');}
   }finally{ff.terminate();}
  });
