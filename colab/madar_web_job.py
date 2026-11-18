@@ -114,6 +114,13 @@ def main():
     cfg={}
     try:
         cfg = json.loads((ROOT/'config.json').read_text())
+        drive_task = cfg.get('task', 'separate')
+        try:
+            # Models kept in the visitor's Drive come back in seconds instead of a fresh download.
+            from madar_drive_cache import restore
+            restore(drive_task, status)
+        except Exception:
+            pass
         if cfg.get('task') == 'download':
             from madar_download import download_clip
             output = download_clip(cfg, ROOT, status)
@@ -189,6 +196,11 @@ def main():
             captions={'size':sidecar.stat().st_size,'chunks':hashes,'ext':'zip'}
         preview={}
         if (ROOT/'preview.json').exists():preview=json.loads((ROOT/'preview.json').read_text())
+        try:
+            from madar_drive_cache import save_later
+            save_later(cfg.get('task', 'separate'))
+        except Exception:
+            pass
         status('done', 'اكتملت المعالجة؛ النتيجة جاهزة للتنزيل', size=output.stat().st_size, chunks=chunks, ext=output.suffix.lower().lstrip('.'), task=cfg.get('task','separate'), designName=cfg.get('name',''),sourceName=cfg.get('sourceName',''),preview=preview,captions=captions)
     except Exception as exc:
         # Detailed traceback remains in the user's runtime, never in the page response.

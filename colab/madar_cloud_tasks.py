@@ -667,6 +667,10 @@ def warm(tool):
  if tool not in WARM_TOOLS:return []
  from madar_colab_runtime import install_once,SEPARATION_PIP,MODEL,DUB_MODEL,CACHE
  quiet=lambda *a,**k:None;done=[]
+ try:
+  from madar_drive_cache import restore
+  done+=['drive:'+n for n in restore(tool)]
+ except Exception as exc:done.append('drive:'+type(exc).__name__)
  def step(name,fn):
   try:fn();done.append(name)
   except Exception as exc:done.append(name+':'+type(exc).__name__)
@@ -694,4 +698,8 @@ def warm(tool):
   def nllb():
    install('translate',quiet);hub('facebook/nllb-200-distilled-600M','38bd1c6a0f58097b26ef7c7cd73a0dcac034350a',['*.json','model.safetensors','*.model'])
   step('nllb',nllb)
+ try:
+  from madar_drive_cache import save
+  done+=['saved:'+n for n in save(tool)]
+ except Exception as exc:done.append('save:'+type(exc).__name__)
  return done

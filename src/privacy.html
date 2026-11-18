@@ -24,6 +24,7 @@
 <p>الأدوات السحابية اختيارية. إذا اخترت إحداها تطلب الصفحة إذنك عبر Google، وتستخدم الصلاحيات التالية فقط:</p>
 <ul>
 <li><b>Google Colab</b> (<code>auth/colaboratory</code>): لإنشاء جلسة معالجة في حساب Colab الخاص بك، ورفع الملف الذي تختاره إليها، وتشغيل الأداة، وتنزيل النتيجة، ثم إيقاف الجلسة. المعالجة تتم في حسابك أنت وتستهلك موارده.</li>
+<li><b>مجلد مدار المخفي في Drive</b> (<code>auth/drive.appdata</code>) مع الأدوات السحابية: لحفظ النماذج والمكتبات اللي تحتاجها الأداة في مجلد مخفي خاص بمدار داخل Drive حسابك، عشان المرة الجاية تبدأ الأداة بسرعة بدل ما تنزّلها من جديد. ما تصل هذه الصلاحية لأي ملف من ملفاتك؛ تشوف فقط مجلد مدار المخفي، وتقدر تحذفه من إعدادات Drive ← إدارة التطبيقات.</li>
 <li><b>Google Drive</b> (<code>auth/drive.file</code>) في أدوات QR عند اختيار «رابط دائم عبر Drive» فقط: لرفع الملف الذي تختاره إلى Drive الخاص بك ومشاركته برابط. لا تصل هذه الصلاحية إلا للملفات التي ينشئها مدار.</li>
 </ul>
 <p>تصريح الدخول (access token) يبقى في ذاكرة الصفحة فقط ويُفقد عند إغلاقها، ويُمرَّر عبر خادم مدار إلى خدمات Google المحددة أعلاه ولا يُحفظ. لا نطلب كلمة مرورك، ولا نقرأ بريدك أو ملفاتك الأخرى، ولا نستخدم بيانات Google لأي غرض غير تنفيذ الأداة التي طلبتها.</p>
@@ -52,6 +53,7 @@
 <p><b>Google sign-in.</b> Cloud tools are optional. When you choose one, Madar asks for your consent through Google and uses only these scopes:</p>
 <ul>
 <li><code>https://www.googleapis.com/auth/colaboratory</code> — to create a processing runtime in <em>your own</em> Google Colab account, upload the file you selected to it, run the tool, download the result and stop the runtime.</li>
+<li><code>https://www.googleapis.com/auth/drive.appdata</code> — with the cloud tools: to keep the models and libraries a tool needs in Madar's hidden application folder inside your own Drive, so the next run starts quickly instead of downloading them again. It cannot see any of your files, only Madar's hidden folder, which you can delete in Drive → Settings → Manage apps.</li>
 <li><code>https://www.googleapis.com/auth/drive.file</code> — only in the QR tools when you choose "permanent link via Drive": to upload the file you selected to your own Drive and share it by link. This scope only reaches files created by Madar.</li>
 </ul>
 <p>The access token stays in page memory only, is passed through Madar's server to the Google APIs above, and is never stored. We never ask for your password, never read your other files or mail, and use Google user data only to perform the tool you requested.</p>

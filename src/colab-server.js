@@ -3,7 +3,7 @@ import {sourceName} from './output-names.js';
 import {validateCloudConfig} from './cloud-catalog.js';
 import {downloadURL} from './colab-core.js';
 import {PublicError,boundedBody} from './cloud-server.js';
-import {jobSource,engineSource,downloadSource,cloudSource,serviceSource,fontSource,captionSource} from './colab-sources.js';
+import {jobSource,engineSource,downloadSource,cloudSource,serviceSource,fontSource,captionSource,driveCacheSource} from './colab-sources.js';
 const rawUnavailable=new Map(),runtimeCaches=new WeakMap();
 const PROJECT='madarfiles',BASE='https://colaboratory.googleapis.com/';
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -103,12 +103,17 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
   }};
   const allowedTools=COLAB_TOOLS;
   if(b.tool!==undefined){if(!allowedTools.includes(b.tool))throw new PublicError('أداة غير صالحة');let owner;try{const f=await jup('GET','api/contents/madar_web/tool.json?content=1&format=text');owner=JSON.parse(f.content).tool;}catch(e){if(e.status!==404)throw e;}
-   if(owner&&owner!==b.tool)throw new PublicError('هذه الجلسة تخص أداة أخرى',409);
+   // One session for the whole site: a new tool may take over an idle session (the page checked
+   // that nothing runs in it); without takeover a session still belongs to one tool.
+   if(owner&&owner!==b.tool){if(action==='prepare'&&b.takeover===true){await jup('PUT','api/contents/madar_web/tool.json',{type:'file',format:'text',content:JSON.stringify({tool:b.tool})});owner=b.tool;}else throw new PublicError('هذه الجلسة تخص أداة أخرى',409);}
    if(!owner){if(action!=='prepare')throw new PublicError('هيّئ جلسة مستقلة لهذه الأداة أولًا',409);await jup('PUT','api/contents/madar_web',{type:'directory'});await jup('PUT','api/contents/madar_web/tool.json',{type:'file',format:'text',content:JSON.stringify({tool:b.tool})});}
   }
   if(action==='config'){const file=await jup('GET','api/contents/'+jobPath+'/config.json?content=1&format=text');return json(validateConfig(JSON.parse(file.content)));}
   if(action==='pulse'){await jup('PUT','api/contents/madar_web/lease.json',{type:'file',format:'text',content:JSON.stringify({updated:Date.now()/1000})});return json({alive:true});}
   const put=(file,content,format='text')=>jup('PUT','api/contents/'+jobPath+'/'+file,{type:'file',format,content});
+  // Model/library cache in the user's own Drive (hidden app folder, scope drive.appdata): the
+  // session gets the visitor's short-lived token only when the page says Drive was granted.
+  const driveKey=async()=>{if(b.drive===true)await jup('PUT','api/contents/madar_web/google.json',{type:'file',format:'text',content:JSON.stringify({token,expires:Math.floor(Date.now()/1000)+3000,drive:true})});};
   // Early preparation: while the file uploads, the session installs the tool's libraries and
   // downloads its models in the background. Best effort: a failure here never blocks the tool.
   const warmTool=async(kernelId,tool,limit)=>{const stop=AbortSignal.any([signal,AbortSignal.timeout(limit)].filter(Boolean));try{
@@ -116,7 +121,7 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
    if(r.status>=300&&r.status<400||!r.webSocket){await r.body?.cancel?.();return false;}
    await execute(r.webSocket,warmCode(tool),stop,session);return true;
   }catch{return false;}};
-  if(action==='prepare'){const ks=await jup('GET','api/kernelspecs');const name=ks.default||'python3';if(!/^[A-Za-z0-9_.-]{1,80}$/.test(name))throw new PublicError('محرك Python غير صالح',502);const list=await jup('GET','api/kernels');const kernel=Array.isArray(list)&&list.find(k=>k.name===name&&k.execution_state!=='dead')||await jup('POST','api/kernels',{name});if(!/^[A-Za-z0-9-]{1,100}$/.test(kernel.id))throw new PublicError('معرّف Python غير صالح',502);await jup('PUT','api/contents/madar_web',{type:'directory'});if(b.jobId){await jup('PUT','api/contents/madar_web/jobs',{type:'directory'});await jup('PUT','api/contents/'+jobPath,{type:'directory'});}await Promise.all([['runner.py',jobSource],['madar_colab_runtime.py',engineSource],['madar_download.py',downloadSource],['madar_cloud_tasks.py',cloudSource],['service.py',serviceSource],['madar_captions.py',captionSource],...(['asr','burn'].includes(b.tool)?[['madar_fonts.py',fontSource]]:[])].map(([name,content])=>jup('PUT','api/contents/madar_web/'+name,{type:'file',format:'text',content})));if(b.tool)await jup('PUT','api/contents/madar_web/lease.json',{type:'file',format:'text',content:JSON.stringify({updated:Date.now()/1000})});return json({kernel:kernel.id,gpu:runtime.runtimeSpec?.variant==='VARIANT_CPU'?'CPU':runtime.runtimeSpec?.accelerator,shape:runtime.runtimeSpec?.shape});}
+  if(action==='prepare'){await driveKey();const ks=await jup('GET','api/kernelspecs');const name=ks.default||'python3';if(!/^[A-Za-z0-9_.-]{1,80}$/.test(name))throw new PublicError('محرك Python غير صالح',502);const list=await jup('GET','api/kernels');const kernel=Array.isArray(list)&&list.find(k=>k.name===name&&k.execution_state!=='dead')||await jup('POST','api/kernels',{name});if(!/^[A-Za-z0-9-]{1,100}$/.test(kernel.id))throw new PublicError('معرّف Python غير صالح',502);await jup('PUT','api/contents/madar_web',{type:'directory'});if(b.jobId){await jup('PUT','api/contents/madar_web/jobs',{type:'directory'});await jup('PUT','api/contents/'+jobPath,{type:'directory'});}await Promise.all([['runner.py',jobSource],['madar_colab_runtime.py',engineSource],['madar_download.py',downloadSource],['madar_cloud_tasks.py',cloudSource],['service.py',serviceSource],['madar_captions.py',captionSource],['madar_drive_cache.py',driveCacheSource],...(['asr','burn'].includes(b.tool)?[['madar_fonts.py',fontSource]]:[])].map(([name,content])=>jup('PUT','api/contents/madar_web/'+name,{type:'file',format:'text',content})));if(b.tool)await jup('PUT','api/contents/madar_web/lease.json',{type:'file',format:'text',content:JSON.stringify({updated:Date.now()/1000})});return json({kernel:kernel.id,gpu:runtime.runtimeSpec?.variant==='VARIANT_CPU'?'CPU':runtime.runtimeSpec?.accelerator,shape:runtime.runtimeSpec?.shape});}
   // Early preparation runs in its own request (never inside prepare: a slow kernel channel there
   // pushed prepare past Netlify's 30 s limit and broke every tool). Hard cap 15 s, best effort.
   if(action==='warm'){if(!WARM_TOOLS.includes(b.tool)||typeof b.kernel!=='string'||!/^[A-Za-z0-9-]{1,100}$/.test(b.kernel))throw new PublicError('طلب غير صالح');const ok=await warmTool(b.kernel,b.tool,15000);return json({started:ok});}
@@ -126,6 +131,7 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
    try{await put(part,b.data,'base64');}catch(e){if(e.status!==404)throw e;runtime=await getRuntime(true);({base,headers}=connection());for(const dir of ['madar_web','madar_web/jobs',jobPath])await jup('PUT','api/contents/'+dir,{type:'directory'});await put(part,b.data,'base64');}
    return json({uploaded:b.index});}
   if(action==='run'){
+   await driveKey();
    const stateFile='api/contents/'+jobPath+'/state.json?content=1&format=text';
    const currentState=async()=>{try{const file=await jup('GET',stateFile);const state=JSON.parse(file.content);if(['queued','setup','gpu','separating','downloading','processing','done','error'].includes(state.state))return state;throw new PublicError('حالة محرك الفصل غير صالحة',502);}catch(e){if(e.status===404)return null;throw e;}};
    const existing=await currentState();if(existing&&existing.state!=='queued')return json({started:true,state:existing.state});

@@ -9,6 +9,7 @@ html=html.replace('</head>','<meta name="madar-groq-limit" content="4194304"></h
 await writeFile(target+'/index.html',html);await writeFile(target+'/app.js',await pack('src/netlify-entry.js'));
 await copyFile('src/app.css',target+'/app.css');
 for(const name of ['icon.svg','apple-touch-icon.png','licenses.html'])await copyFile('src/'+name,target+'/'+name);
+await copyFile('src/oauth-return.html',target+'/oauth-return.html');await writeFile(target+'/oauth-return.js',await pack('src/oauth-return.js'));
 {const email=(process.env.MADAR_CONTACT_EMAIL||'').trim(),valid=/^[^\s@<>"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/.test(email);let privacy=await readFile('src/privacy.html','utf8');
  privacy=valid?privacy.replaceAll('__CONTACT__',email):privacy.replace(/<a id="contact" href="mailto:__CONTACT__">__CONTACT__<\/a>/,'<a href="https://github.com/tahon-altayb/madarfilesweb/issues" rel="noopener">صفحة المشروع على GitHub</a>').replace('<a href="mailto:__CONTACT__">__CONTACT__</a>','<a href="https://github.com/tahon-altayb/madarfilesweb/issues" rel="noopener">GitHub project page</a>');
  if(privacy.includes('__CONTACT__'))throw Error('privacy.html contact placeholder left unresolved');await writeFile(target+'/privacy.html',privacy);}await mkdir(target+'/fonts');for(const name of ['DejaVuSans.ttf','DejaVuSans-Bold.ttf','Amiri-Regular.ttf','Amiri-Bold.ttf','OFL.txt','DejaVu-LICENSE.txt'])await copyFile('src/fonts/'+name,target+'/fonts/'+name);
