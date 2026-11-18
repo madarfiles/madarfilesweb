@@ -13,6 +13,14 @@ def status(state, message, **extra):
     tmp.replace(ROOT/'state.json')
 
 
+def _manifest(path):
+    digest = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for block in iter(lambda: f.read(PART), b''):
+            digest.update(hashlib.sha256(block).digest())
+    return digest.hexdigest()
+
+
 def assemble(config):
     source = ROOT/('source.'+config['ext'])
     if config.get('parentJob'):
@@ -32,6 +40,16 @@ def assemble(config):
             source.unlink(missing_ok=True);raise ValueError('لم يطابق المصدر المحفوظ بصمته؛ أعد رفعه')
         return source
 
+    if config.get('driveInput'):
+        # The page uploaded the file straight to the visitor's Drive; take it from there.
+        from madar_drive_cache import fetch_input
+        if not (source.is_file() and source.stat().st_size == config['size'] and _manifest(source) == config['sha256']):
+            status('setup', 'نجيب ملفك من Google Drive…')
+            size, digest_hex = fetch_input(config['driveInput'], source, PART, config['chunks'])
+            if size != config['size'] or digest_hex != config['sha256']:
+                source.unlink(missing_ok=True)
+                raise ValueError('لم يكتمل نقل الملف بشكل سليم؛ أعد الرفع')
+        return source
     digest = hashlib.sha256()
     with source.open('wb') as out:
         for i in range(config['chunks']):
@@ -196,12 +214,16 @@ def main():
             captions={'size':sidecar.stat().st_size,'chunks':hashes,'ext':'zip'}
         preview={}
         if (ROOT/'preview.json').exists():preview=json.loads((ROOT/'preview.json').read_text())
+        drive_out = None
         try:
-            from madar_drive_cache import save_later
+            from madar_drive_cache import put_output, save_later, token as drive_token
+            if drive_token():
+                status('downloading', 'نجهز النتيجة للتنزيل السريع عبر Google Drive…')
+                drive_out = put_output(output, ROOT.name)
             save_later(cfg.get('task', 'separate'))
         except Exception:
             pass
-        status('done', 'اكتملت المعالجة؛ النتيجة جاهزة للتنزيل', size=output.stat().st_size, chunks=chunks, ext=output.suffix.lower().lstrip('.'), task=cfg.get('task','separate'), designName=cfg.get('name',''),sourceName=cfg.get('sourceName',''),preview=preview,captions=captions)
+        status('done', 'اكتملت المعالجة؛ النتيجة جاهزة للتنزيل', **({'driveOutput': drive_out} if drive_out else {}), size=output.stat().st_size, chunks=chunks, ext=output.suffix.lower().lstrip('.'), task=cfg.get('task','separate'), designName=cfg.get('name',''),sourceName=cfg.get('sourceName',''),preview=preview,captions=captions)
     except Exception as exc:
         # Detailed traceback remains in the user's runtime, never in the page response.
         import traceback

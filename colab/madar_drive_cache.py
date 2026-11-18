@@ -193,3 +193,83 @@ def save(task):
 def save_later(task):
     """After a job finishes: upload in the background so the visitor never waits for it."""
     threading.Thread(target=save, args=(task,), daemon=True, name='madar-drive-save').start()
+
+
+# ---- The visitor's file and result, carried through Drive instead of the site -------------
+IO_PREFIX = 'madar-io-'
+
+
+def fetch_input(file_id, dest, part_size, chunks):
+    """Downloads the uploaded file from Drive into `dest`, hashing every part the same way the
+    page did, then deletes it from Drive. Returns the manifest digest (sha256 of part hashes)."""
+    import re, requests
+    if not re.fullmatch(r'[A-Za-z0-9_-]{10,200}', str(file_id)):
+        raise ValueError('مرجع الملف في Drive غير صالح')
+    auth_token = token()
+    if not auth_token:
+        raise RuntimeError('DRIVE_NO_TOKEN')
+    auth = {'Authorization': 'Bearer ' + auth_token}
+    digest = hashlib.sha256(); size = 0; buffer = b''
+    with requests.get(f'{FILES}/{file_id}', params={'alt': 'media'}, headers=auth, stream=True, timeout=(15, 120)) as r:
+        if r.status_code != 200:
+            raise RuntimeError('DRIVE_INPUT_%d' % r.status_code)
+        with open(dest, 'wb') as out:
+            for block in r.iter_content(BLOCK):
+                out.write(block); size += len(block); buffer += block
+                while len(buffer) >= part_size:
+                    digest.update(hashlib.sha256(buffer[:part_size]).digest()); buffer = buffer[part_size:]
+    if buffer:
+        digest.update(hashlib.sha256(buffer).digest())
+    parts = (size + part_size - 1)//part_size
+    try:
+        requests.delete(f'{FILES}/{file_id}', headers=auth, timeout=(10, 20))
+    except Exception:
+        pass
+    if parts != chunks:
+        raise ValueError('حجم الملف في Drive لا يطابق المرفوع')
+    return size, digest.hexdigest()
+
+
+def put_output(path, job):
+    """Uploads the result to the hidden Drive folder so the page downloads it directly.
+    Returns the file id or None (then the page downloads through the site as before)."""
+    auth_token = token()
+    if not auth_token:
+        return None
+    try:
+        import requests
+        auth = {'Authorization': 'Bearer ' + auth_token}
+        _cleanup_io(auth, requests)
+        size = Path(path).stat().st_size
+        r = requests.post(UPLOAD, params={'uploadType': 'resumable', 'fields': 'id'}, timeout=(10, 30),
+                          json={'name': f'{IO_PREFIX}out-{job}', 'parents': ['appDataFolder']},
+                          headers={**auth, 'X-Upload-Content-Type': 'application/octet-stream', 'X-Upload-Content-Length': str(size)})
+        location = r.headers.get('Location', '')
+        if r.status_code != 200 or not location.startswith('https://www.googleapis.com/upload/drive/v3/files'):
+            return None
+        with open(path, 'rb') as f:
+            r = requests.put(location, data=f, headers={'Content-Length': str(size), 'Content-Type': 'application/octet-stream'}, timeout=(15, 900))
+        if r.status_code not in (200, 201):
+            return None
+        file_id = r.json().get('id')
+        return file_id if isinstance(file_id, str) else None
+    except Exception:
+        return None
+
+
+def _cleanup_io(auth, requests, older=6*3600):
+    """Results nobody downloaded (page closed) are removed after a few hours."""
+    try:
+        r = requests.get(FILES, headers=auth, timeout=(10, 20), params={
+            'spaces': 'appDataFolder', 'q': f"name contains '{IO_PREFIX}' and trashed = false",
+            'fields': 'files(id,createdTime)', 'pageSize': 50})
+        if r.status_code != 200:
+            return
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        for item in r.json().get('files', []):
+            made = datetime.fromisoformat(item['createdTime'].replace('Z', '+00:00'))
+            if (now - made).total_seconds() > older:
+                requests.delete(f"{FILES}/{item['id']}", headers=auth, timeout=(10, 20))
+    except Exception:
+        pass

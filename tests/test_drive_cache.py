@@ -24,8 +24,11 @@ class FakeDrive:
   def post(url,params=None,json=None,headers=None,timeout=None):
    drive.calls.append(('POST',url));key='u%d'%len(drive.uploads);drive.uploads[key]=json;return Resp(200,headers={'Location':'https://www.googleapis.com/upload/drive/v3/files?upload_id='+key})
   def put(url,data=None,headers=None,timeout=None):
-   key=url.split('=')[-1];meta=drive.uploads[key];drive.files['f%d'%len(drive.files)]={'name':meta['name'],'props':meta['appProperties'],'body':data.read()};return Resp(200,{})
-  return types.SimpleNamespace(get=get,post=post,put=put,RequestException=Exception)
+   key=url.split('=')[-1];meta=drive.uploads[key];drive.files['f%d'%len(drive.files)]={'name':meta['name'],'props':meta.get('appProperties',{}),'body':data.read()};return Resp(200,{})
+  def delete(url,headers=None,timeout=None):drive.calls.append(('DELETE',url));drive.files.pop(url.rsplit('/',1)[1],None);return Resp(204)
+  def put2(url,data=None,headers=None,timeout=None):
+   r=put(url,data,headers,timeout);r._data={'id':list(drive.files)[-1]};return r
+  return types.SimpleNamespace(get=get,post=post,put=put2,delete=delete,RequestException=Exception)
 
 class DriveCache(unittest.TestCase):
  def setUp(self):
@@ -71,4 +74,20 @@ class DriveCache(unittest.TestCase):
   m=load('drive_cache_parts','madar_drive_cache.py')
   names={t:[n for n,_ in m.parts(t)] for t in ['separate','dub','asr','translate','ocr']}
   self.assertEqual(names['separate'],['uvr-UVR-MDX-NET-Voc_FT.onnx']);self.assertIn('hf-mobiuslabsgmbh--faster-whisper-large-v3-turbo',names['dub']);self.assertIn('titanet-large',names['dub']);self.assertEqual(names['ocr'],[])
+class DriveTransfer(DriveCache):
+ def test_the_uploaded_file_comes_from_drive_with_the_pages_part_hashes_and_is_then_deleted(self):
+  import hashlib
+  self.key();data=bytes(range(256))*20000;PART=2*1048576
+  digest=hashlib.sha256();[digest.update(hashlib.sha256(data[i:i+PART]).digest()) for i in range(0,len(data),PART)]
+  self.drive.files['FILEID12345']={'name':'madar-io-in-x','props':{},'body':data}
+  dest=Path(self.tmp.name)/'source.mp4'
+  with patch.dict(sys.modules,{'requests':self.drive.module()}):size,got=self.m.fetch_input('FILEID12345',dest,PART,3)
+  self.assertEqual((size,got),(len(data),digest.hexdigest()));self.assertEqual(dest.read_bytes(),data);self.assertNotIn('FILEID12345',self.drive.files,'deleted from Drive after use')
+  with self.assertRaises(ValueError),patch.dict(sys.modules,{'requests':self.drive.module()}):self.m.fetch_input('bad id!',dest,PART,3)
+ def test_the_result_goes_to_drive_for_a_direct_download(self):
+  self.key();out=Path(self.tmp.name)/'result.m4a';out.write_bytes(b'r'*5000)
+  with patch.dict(sys.modules,{'requests':self.drive.module()}):file_id=self.m.put_output(out,'job1')
+  self.assertEqual(self.drive.files[file_id]['body'],b'r'*5000);self.assertEqual(self.drive.files[file_id]['name'],'madar-io-out-job1')
+  self.m.KEY.unlink()
+  with patch.dict(sys.modules,{'requests':self.drive.module()}):self.assertIsNone(self.m.put_output(out,'job2'),'no Drive permission: the site path is used')
 if __name__=='__main__':unittest.main()

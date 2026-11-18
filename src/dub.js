@@ -7,11 +7,9 @@ import {detectSegments,clock,mixArguments,recordingExt,readLines,mergeLines,spli
 import {pickerAccept,requireAccepted,mountFilePicker} from './file-picker.js';
 import {sourceName} from './output-names.js';
 import {wireSave} from './save-file.js';
+import {engine} from './local-ffmpeg.js';
 
 const base=n=>sourceName(n).replace(/\.[A-Za-z0-9]{1,5}$/,''),MAX_VIDEO=300*1048576;
-const ENGINE={classWorkerURL:'/ffmpeg-worker.js',coreURL:'/runtime/ffmpeg-core.js?v=0.12.10',wasmURL:'/runtime/ffmpeg-core.wasm?v=0.12.10'};
-const abs=u=>new URL(u,location.origin).href;
-async function engine(report){const {FFmpeg}=await import('@ffmpeg/ffmpeg');const ff=new FFmpeg();if(report)ff.on('progress',e=>report(Math.min(99,Math.max(0,Math.round(e.progress*100)))));await ff.load({classWorkerURL:abs(ENGINE.classWorkerURL),coreURL:abs(ENGINE.coreURL),wasmURL:abs(ENGINE.wasmURL)});return ff;}
 const STEPS=[['connect','الاتصال'],['video','الفيديو'],['split','الفصل'],['record','التسجيل'],['export','التصدير']];
 
 export function mountDub(content,{onResult}){
@@ -58,7 +56,8 @@ export function mountDub(content,{onResult}){
  q('#dubStart').onclick=()=>guard(async()=>{
   if(!video)throw Error('اختر الفيديو أولًا');stems=null;go('split');colab.steps?.go('run',{scroll:false});const say=t=>q('#dubSplitStatus').textContent=t;say('نجهز صوت الفيديو في جهازك…');
   const ff=await engine(p=>say('نجهز صوت الفيديو في جهازك · '+p+'٪'));
-  try{await ff.writeFile('video.bin',new Uint8Array(await video.arrayBuffer()));const code=await ff.exec(['-i','video.bin','-map','0:a:0','-vn','-ac','2','-ar','44100','-c:a','aac','-b:a','192k','audio.m4a']);if(code!==0)throw Error('ما قدرنا نقرأ صوت هذا الفيديو؛ تأكد إن فيه صوت');
+  try{await ff.writeFile('video.bin',new Uint8Array(await video.arrayBuffer()));// AAC audio (most phone videos) is copied as it is, in seconds; anything else is re-encoded.
+   let code=await ff.exec(['-i','video.bin','-map','0:a:0','-vn','-sn','-dn','-c:a','copy','audio.m4a']);if(code!==0){try{await ff.deleteFile('audio.m4a');}catch{}code=await ff.exec(['-i','video.bin','-map','0:a:0','-vn','-ac','2','-ar','44100','-c:a','aac','-b:a','192k','audio.m4a']);}if(code!==0)throw Error('ما قدرنا نقرأ صوت هذا الفيديو؛ تأكد إن فيه صوت');
    const audio=new File([await ff.readFile('audio.m4a')],base(video.name)+'-صوت.m4a',{type:'audio/mp4'});say('نرفع الصوت ('+(audio.size/1048576).toFixed(1)+' MB) ونفصله على Colab…');const lang=host.querySelector('#cloud-textLang');if(lang)lang.value=q('#dubTextLang').value;colab.load([audio]);colab.run();
   }finally{ff.terminate();}
  });
