@@ -45,10 +45,13 @@ def assemble(config):
         from madar_drive_cache import fetch_input
         if not (source.is_file() and source.stat().st_size == config['size'] and _manifest(source) == config['sha256']):
             status('setup', 'نجيب ملفك من Google Drive…')
+            began = time.monotonic()
             size, digest_hex = fetch_input(config['driveInput'], source, PART, config['chunks'])
             if size != config['size'] or digest_hex != config['sha256']:
                 source.unlink(missing_ok=True)
                 raise ValueError('لم يكتمل نقل الملف بشكل سليم؛ أعد الرفع')
+            took = max(time.monotonic() - began, 0.01)
+            status('setup', f'وصل الملف من Drive · {size/1048576:.2f} MB في {took:.1f} ث')
         return source
     digest = hashlib.sha256()
     with source.open('wb') as out:
@@ -219,7 +222,9 @@ def main():
             from madar_drive_cache import put_output, save_later, token as drive_token
             if drive_token():
                 status('downloading', 'نجهز النتيجة للتنزيل السريع عبر Google Drive…')
+                began = time.monotonic()
                 drive_out = put_output(output, ROOT.name)
+                status('downloading', f'النتيجة في Drive · {output.stat().st_size/1048576:.2f} MB في {time.monotonic()-began:.1f} ث' if drive_out else 'تعذر وضع النتيجة في Drive؛ التنزيل عن طريق الموقع')
             save_later(cfg.get('task', 'separate'))
         except Exception:
             pass

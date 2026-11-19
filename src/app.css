@@ -110,3 +110,5 @@ html,body,dialog,*{scrollbar-width:none;-ms-overflow-style:none}
 .chain-btn span{font-size:20px;line-height:1}
 .chain-btn:active{transform:scale(.98)}
 .cpu-note{background:#fff6e6;border-color:#f0dcb4}
+.qr-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.qr-actions .button{min-height:48px}

@@ -46,7 +46,7 @@ export async function driveUpload(file,token,{name,signal,onProgress=()=>{}}={})
     // (Colab still verifies every part's hash, so a wrong guess can't corrupt the result).
     const next=got?Number(got[1])+1:(r.range==null?end:sent);if(next>=end){sent=end;break;}if(attempt++>=3)throw driveError(308,'INCOMPLETE');sent=Math.max(offset,next);continue;}
    if(r&&![408,429,500,502,503,504].includes(r.status))throw driveError(r.status,'CHUNK');
-   if(attempt>3)throw driveError(r?.status||0,'RETRIES');await sleep(800*attempt,signal||new AbortController().signal);
+   if(attempt>3)throw driveError(r?.status||0,'RETRIES');onRetry('جزء '+sent+'-'+(end-1)+' · '+(r?'HTTP '+r.status:'انقطع الاتصال'));await sleep(800*attempt,signal||new AbortController().signal);
    // Ask Google how much it has, then continue from there.
    const q=await putChunk(url,new Uint8Array(0),`bytes */${file.size}`,signal,()=>{}).catch(()=>null);const got=/bytes=0-(\d+)/.exec(q?.range||'');sent=Math.min(end,Math.max(offset,got?Number(got[1])+1:offset));if(q&&(q.status===200||q.status===201)){result=JSON.parse(q.body||'{}');sent=end;break;}
   }
