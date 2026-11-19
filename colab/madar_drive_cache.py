@@ -279,3 +279,178 @@ def _cleanup_io(auth, requests, older=6*3600):
                 requests.delete(f"{FILES}/{item['id']}", headers=auth, timeout=(10, 20))
     except Exception:
         pass
+
+
+# ---- Libraries: what pip installed for a tool, kept in Drive so the next machine skips pip ----
+# The first session of a tool installs its libraries as usual and packs exactly the files pip
+# added (from each package's RECORD) into one archive in the hidden Madar folder. Later sessions
+# unpack that archive in seconds instead of running pip. The archive's name carries the pip
+# commands, the Python version and the Colab image (its torch version and package folders), so a
+# changed tool or a new Colab image simply installs again. Any problem means a normal pip install.
+LIB_LIMIT = 2 << 30
+
+
+def _package_dirs():
+    import sys
+    return [Path(p) for p in dict.fromkeys(sys.path) if p and Path(p).name in ('site-packages', 'dist-packages') and Path(p).is_dir()]
+
+
+def lib_snapshot():
+    return {str(d): d for base in _package_dirs() for d in base.glob('*.dist-info')}
+
+
+def lib_name(key, tag):
+    import sys
+    try:
+        import importlib.metadata as md
+        torch = md.version('torch')
+    except Exception:
+        torch = '-'
+    image = hashlib.sha256(json.dumps([sys.version, torch, [str(p) for p in _package_dirs()]]).encode()).hexdigest()[:12]
+    return f'lib-{key}-{tag}-{image}'
+
+
+def _record(dist):
+    """The files a package installed, relative to its package folder; nothing outside it."""
+    import csv
+    try:
+        rows = list(csv.reader((dist/'RECORD').read_text(encoding='utf-8').splitlines()))
+    except OSError:
+        return []
+    out = []
+    for row in rows:
+        if not row or not row[0]:
+            continue
+        rel = Path(row[0])
+        if rel.is_absolute() or '..' in rel.parts:
+            continue
+        out.append(rel)
+    return out
+
+
+def lib_changes(before):
+    """(added dist-info folders, removed dist-info paths) since `before` (a lib_snapshot)."""
+    after = lib_snapshot()
+    return [after[p] for p in sorted(set(after) - set(before))], sorted(set(before) - set(after))
+
+
+def _pack(added, removed, archive):
+    bases = sorted({str(d.parent) for d in added})
+    total = 0
+    with tarfile.open(archive, 'w') as tar:
+        for dist in added:
+            base = Path(dist.parent); index = bases.index(str(base))
+            for rel in _record(dist):
+                f = base/rel
+                if f.is_file() and not f.is_symlink():
+                    tar.add(f, arcname=f'{index}/{rel.as_posix()}', recursive=False)
+                    total += f.stat().st_size
+                    if total > LIB_LIMIT:
+                        raise ValueError('LIB_TOO_LARGE')
+        data = json.dumps({'bases': bases, 'removed': removed}).encode()
+        info = tarfile.TarInfo('manifest.json'); info.size = len(data)
+        import io
+        tar.addfile(info, io.BytesIO(data))
+    return total
+
+
+def save_libs(name, added, removed, lock_path=None):
+    """Packs and uploads the libraries pip just added. Runs in the background; holds the pip lock
+    while packing so another install can't change the files halfway."""
+    auth_token = token()
+    if not auth_token or not added:
+        return False
+    import requests
+    auth = {'Authorization': 'Bearer ' + auth_token}
+    tmp = CACHE/'.drive-tmp'; tmp.mkdir(parents=True, exist_ok=True)
+    archive = tmp/(name + '.tar')
+    try:
+        if _find(name, auth, requests):
+            return True
+        handle = open(lock_path, 'a') if lock_path else None
+        try:
+            if handle:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+            _pack(added, removed, archive)
+        finally:
+            if handle:
+                handle.close()
+        if not _upload(name, archive, auth, requests):
+            return False
+        # Older archives of the same tool (another version or Colab image) are no longer useful.
+        key = name.rsplit('-', 2)[0]
+        r = requests.get(FILES, headers=auth, timeout=(10, 20), params={
+            'spaces': 'appDataFolder', 'q': f"name contains 'madar-{VERSION}-{key}-' and trashed = false",
+            'fields': 'files(id,name)', 'pageSize': 50})
+        if r.status_code == 200:
+            for item in r.json().get('files', []):
+                if item.get('name') != f'madar-{VERSION}-{name}' and item.get('name', '').startswith(f'madar-{VERSION}-{key}-'):
+                    requests.delete(f"{FILES}/{item['id']}", headers=auth, timeout=(10, 20))
+        return True
+    except Exception:
+        return False
+    finally:
+        archive.unlink(missing_ok=True)
+
+
+def _uninstall(dist):
+    base = dist.parent
+    for rel in _record(dist):
+        try:
+            (base/rel).unlink()
+        except OSError:
+            pass
+    shutil.rmtree(dist, ignore_errors=True)
+
+
+def restore_libs(name, report=None):
+    """Unpacks a tool's saved libraries from Drive. Returns (MB, seconds) or None."""
+    auth_token = token()
+    if not auth_token:
+        return None
+    import requests
+    auth = {'Authorization': 'Bearer ' + auth_token}
+    tmp = CACHE/'.drive-tmp'; tmp.mkdir(parents=True, exist_ok=True)
+    part = tmp/(name + '.part')
+    began = time.monotonic()
+    try:
+        found = _find(name, auth, requests)
+        if not found:
+            return None
+        file_id, digest, size, _ = found
+        if report:
+            report('setup', 'نجيب مكتبات الأداة الجاهزة من Google Drive…')
+        h = hashlib.sha256(); got = 0
+        with requests.get(f'{FILES}/{file_id}', params={'alt': 'media'}, headers=auth, stream=True, timeout=(15, 60)) as r:
+            if r.status_code != 200:
+                return None
+            with open(part, 'wb') as out:
+                for block in r.iter_content(BLOCK):
+                    h.update(block); out.write(block); got += len(block)
+        if got != size or h.hexdigest() != digest:
+            return None
+        with tarfile.open(part) as tar:
+            manifest = json.load(tar.extractfile('manifest.json'))
+            bases = [Path(b) for b in manifest['bases']]
+            here = {str(p) for p in _package_dirs()}
+            if not bases or any(str(b) not in here for b in bases):
+                return None
+            for old in manifest.get('removed', []):
+                old = Path(old)
+                if old.suffix == '.dist-info' and str(old.parent) in here and old.is_dir():
+                    _uninstall(old)
+            members = tar.getmembers()
+            for index, base in enumerate(bases):
+                chosen = []
+                for m in members:
+                    head, _, rel = m.name.partition('/')
+                    if head == str(index) and rel:
+                        chosen.append(m.replace(name=rel, deep=False))
+                tar.extractall(base, members=chosen, filter='data')
+        import importlib
+        importlib.invalidate_caches()
+        return round(size/1048576, 1), round(time.monotonic()-began, 1)
+    except Exception:
+        return None
+    finally:
+        part.unlink(missing_ok=True)

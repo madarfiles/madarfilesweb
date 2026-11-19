@@ -164,7 +164,7 @@ def main():
             status('setup', 'تثبيت مكتبات الفصل على Colab؛ أول تشغيل قد يستغرق عدة دقائق')
             if not _SEPARATION_READY:
                 from madar_colab_runtime import install_once, SEPARATION_PIP
-                install_once('separation', SEPARATION_PIP)
+                install_once('separation', SEPARATION_PIP, report=status)
                 _SEPARATION_READY = True
             status('gpu', 'تحميل النموذج واختبار CUDA فعليًا')
             import madar_colab_runtime as runtime

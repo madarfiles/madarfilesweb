@@ -49,7 +49,7 @@ def install(task, report):
    from madar_colab_runtime import install_once
    commands=[['install','--quiet','--disable-pip-version-check','-c',str(constraints),*deps]]
    if task=='asr':commands.append(['install','--quiet','--no-deps','faster-whisper==1.2.1'])
-   install_once('task-'+task,commands)
+   install_once('task-'+task,commands,report=report)
   except subprocess.TimeoutExpired:raise ValueError('انتهت مهلة تجهيز المكتبات؛ يمكن إعادة المحاولة بنفس الجلسة · DEPENDENCY_TIMEOUT')
   except subprocess.CalledProcessError:raise ValueError('تعذر تثبيت مكتبات الأداة المتوافقة · DEPENDENCY_INSTALL')
  importlib.invalidate_caches();_INSTALLED.add(task)

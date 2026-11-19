@@ -17,11 +17,12 @@ SEPARATION_PIP = [['install', '--quiet', 'audio-separator[gpu]==0.48.0', 'onnxru
 SETUP_DIR = Path(__file__).resolve().parent/'setup'
 
 
-def install_once(key, commands, timeout=600):
+def install_once(key, commands, timeout=600, report=None):
     """Runs the pip commands for `key` once per Colab session. A shared lock lets the early
     preparation (started while the file uploads) and the job itself use the same install:
-    whichever comes second waits for the first and then skips it. Returns True if it installed."""
-    import fcntl
+    whichever comes second waits for the first and then skips it. Returns True if it installed.
+    Libraries saved in the visitor's Drive by an earlier session are unpacked instead of pip."""
+    import fcntl, threading
     SETUP_DIR.mkdir(parents=True, exist_ok=True)
     tag = hashlib.sha256(json.dumps(commands).encode()).hexdigest()[:16]
     marker = SETUP_DIR/(key+'.ok')
@@ -29,12 +30,33 @@ def install_once(key, commands, timeout=600):
         try: return marker.read_text() == tag
         except OSError: return False
     if ready(): return False
+    say = report or (lambda *a, **k: None)
     with open(SETUP_DIR/'pip.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         if ready(): return False
+        drive = None
+        try:
+            import madar_drive_cache as drive
+            name = drive.lib_name(key, tag)
+            got = drive.restore_libs(name, report)
+            if got:
+                marker.write_text(tag)
+                say('setup', f'المكتبات جاهزة من Drive · {got[0]} MB في {got[1]} ث')
+                return True
+            before = drive.lib_snapshot()
+        except Exception:
+            drive = None
+        began = time.monotonic()
         for command in commands:
             subprocess.run([sys.executable, '-m', 'pip', *command], check=True, timeout=timeout)
         marker.write_text(tag)
+        say('setup', f'ثُبتت المكتبات · {time.monotonic()-began:.1f} ث' + (' (تنحفظ في Drive للمرة الجاية)' if drive and drive.token() else ''))
+        if drive:
+            try:
+                added, removed = drive.lib_changes(before)
+                threading.Thread(target=drive.save_libs, args=(name, added, removed, str(SETUP_DIR/'pip.lock')), daemon=True, name='madar-libs-save').start()
+            except Exception:
+                pass
     return True
 
 

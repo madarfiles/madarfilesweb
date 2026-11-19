@@ -91,3 +91,42 @@ class DriveTransfer(DriveCache):
   self.m.KEY.unlink()
   with patch.dict(sys.modules,{'requests':self.drive.module()}):self.assertIsNone(self.m.put_output(out,'job2'),'no Drive permission: the site path is used')
 if __name__=='__main__':unittest.main()
+
+class LibraryCache(unittest.TestCase):
+ """What pip added for a tool is packed into Drive once and unpacked on the next machine."""
+ def setUp(self):
+  self.tmp=tempfile.TemporaryDirectory();base=Path(self.tmp.name)
+  self.m=load('drive_libs_test','madar_drive_cache.py')
+  self.m.BASE=base;self.m.KEY=base/'google.json';self.m.CACHE=base/'models';self.m.LOCKS=base/'locks'
+  self.site=base/'site-packages';self.m._package_dirs=lambda:[self.site];self.drive=FakeDrive()
+  self.m.KEY.write_text(json.dumps({'token':'tok','expires':time.time()+3000,'drive':True}))
+ def tearDown(self):self.tmp.cleanup()
+ def dist(self,name,version,files):
+  d=self.site/f'{name}-{version}.dist-info';d.mkdir(parents=True)
+  rows=[]
+  for rel,body in files.items():
+   f=self.site/rel;f.parent.mkdir(parents=True,exist_ok=True);f.write_bytes(body);rows.append(f'{rel},,')
+  rows+= [f'{d.name}/RECORD,,','../../../bin/tool,,'];(d/'RECORD').write_text('\n'.join(rows))
+ def fresh(self):
+  import shutil;shutil.rmtree(self.site,ignore_errors=True);self.dist('pkg','1',{'pkg/__init__.py':b'v1','pkg/old.py':b'old'})
+ def test_pip_result_is_restored_on_a_new_machine(self):
+  self.fresh();before=self.m.lib_snapshot()
+  import shutil;shutil.rmtree(self.site/'pkg');shutil.rmtree(self.site/'pkg-1.dist-info')
+  self.dist('pkg','2',{'pkg/__init__.py':b'v2'});self.dist('extra','5',{'extra/lib.so':b'\x7fELF'*100})
+  added,removed=self.m.lib_changes(before)
+  self.assertEqual(sorted(d.name for d in added),['extra-5.dist-info','pkg-2.dist-info']);self.assertEqual([Path(r).name for r in removed],['pkg-1.dist-info'])
+  with patch.dict(sys.modules,{'requests':self.drive.module()}):
+   self.assertTrue(self.m.save_libs('lib-sep-abc-img',added,removed))
+   self.fresh()
+   got=self.m.restore_libs('lib-sep-abc-img')
+  self.assertIsNotNone(got)
+  self.assertEqual((self.site/'pkg/__init__.py').read_bytes(),b'v2');self.assertFalse((self.site/'pkg/old.py').exists())
+  self.assertFalse((self.site/'pkg-1.dist-info').exists());self.assertTrue((self.site/'extra/lib.so').exists())
+ def test_missing_or_other_machine_means_plain_pip(self):
+  self.fresh()
+  with patch.dict(sys.modules,{'requests':self.drive.module()}):
+   self.assertIsNone(self.m.restore_libs('lib-none'))
+   before=self.m.lib_snapshot();self.dist('extra','5',{'extra/a.py':b'a'});added,removed=self.m.lib_changes(before)
+   self.assertTrue(self.m.save_libs('lib-x-1-img',added,removed))
+   self.m._package_dirs=lambda:[Path(self.tmp.name)/'other'/'site-packages']
+   self.assertIsNone(self.m.restore_libs('lib-x-1-img'))
