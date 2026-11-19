@@ -73,14 +73,14 @@ export function mountQRShare(content,spec,ctx){
 }
 
 function mountDirect(content,spec,{onResult}){
- content.innerHTML='<p class="tool-note">الملف ينتقل مباشرة من جهازك إلى الجهاز اللي يمسح الرمز، بدون رفع لأي سيرفر وبدون تسجيل دخول. خلّ هذي الصفحة مفتوحة لين يكتمل الإرسال. حتى 1 GB. أفضل نتيجة لما يكون الجهازين على نفس الواي فاي.</p><label class="field">ملفك<input type="file" id="p2pFile"></label><button class="button full" id="p2pRun">أنشئ رمز الإرسال</button><p class="notice" id="p2pStatus" role="status">اختر ملفًا.</p><div id="p2pResult"></div>';
- const q=s=>content.querySelector(s);q('#p2pFile').accept=pickerAccept(spec.mime);let controller,disposed=false;const msg=t=>{if(!disposed)q('#p2pStatus').textContent=t;};
+ content.innerHTML='<p class="tool-note">يوصل الملف مباشرة للجوال اللي يمسح الرمز. خلّ الصفحة مفتوحة لين يخلص الإرسال.</p><label class="field">ملفك<input type="file" id="p2pFile"></label><button class="button full" id="p2pRun">أنشئ رمز الإرسال</button><p class="notice" id="p2pStatus" role="status" hidden></p><div id="p2pResult"></div>';
+ const q=s=>content.querySelector(s);q('#p2pFile').accept=pickerAccept(spec.mime);let controller,disposed=false;const msg=t=>{if(!disposed){q('#p2pStatus').hidden=!t;q('#p2pStatus').textContent=t;}};
  q('#p2pRun').onclick=async()=>{if(controller){controller.abort();return;}const file=q('#p2pFile').files[0];try{if(file)requireAccepted([file],spec.mime);if(!file)throw Error('اختر ملفًا أولًا');controller=new AbortController();q('#p2pRun').textContent='إيقاف الإرسال';q('#p2pFile').disabled=true;q('#p2pResult').replaceChildren();msg('نجهز رمز الإرسال…');
    await sendFile(file,{abort:controller.signal,report:msg,onCode:async url=>{if(disposed)return;const canvas=document.createElement('canvas');await QRCode.toCanvas(canvas,url,{width:768,margin:4,errorCorrectionLevel:'M'});canvas.className='design-preview';const copy=document.createElement('button');copy.type='button';copy.className='button secondary full';copy.textContent='نسخ رابط الاستلام';copy.onclick=async()=>{try{await navigator.clipboard.writeText(url);copy.textContent='تم النسخ ✓';}catch{copy.textContent=url;}};q('#p2pResult').replaceChildren(canvas,copy);canvas.toBlob(blob=>{if(blob&&!disposed)onResult(blob,'madar-send-qr.png','image');},'image/png');}});
    if(controller?.signal.aborted)msg('أُوقف الإرسال.');
   }catch(e){if(e.name!=='AbortError'&&!controller?.signal.aborted)msg(e.message);else msg('أُوقف الإرسال.');}
   finally{controller=null;if(!disposed){q('#p2pRun').textContent='أنشئ رمز الإرسال';q('#p2pFile').disabled=false;}}};
- const picker=mountFilePicker(q('#p2pFile'),{accept:spec.mime});
+ const picker=mountFilePicker(q('#p2pFile'),{accept:spec.mime});q('#p2pFile').addEventListener('madar:picked',()=>msg('جاهز — اضغط «أنشئ رمز الإرسال».'));
  return{pick(){picker.open();},dispose(){disposed=true;picker.dispose();controller?.abort();}};
 }
 

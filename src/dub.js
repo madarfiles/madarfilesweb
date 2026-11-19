@@ -18,7 +18,7 @@ export function mountDub(content,{onResult}){
  <section data-step="connect"><p class="dub-lead">أول شي اتصل بحساب Google، لأن فصل الأصوات يصير على Colab بحسابك أنت.</p><div id="dubColab"></div></section>
  <section data-step="video"><p class="dub-lead">اختر الفيديو اللي تبي تدبلجه.</p><label class="field">الفيديو<input type="file" id="dubFile"></label><video id="dubSource" class="dub-video" playsinline controls hidden></video>
   <label class="field">الكلام يطلع لك مكتوب وقت التسجيل<select id="dubTextLang"><option value="ar">مترجم للعربي</option><option value="original">بلغة المقطع الأصلية</option><option value="none">بدون نص</option></select></label>
-  <button class="button full" id="dubStart" disabled>ابدأ</button><p class="micro">بالضغط على «ابدأ» توافق إننا نرسل <b>صوت</b> الفيديو فقط إلى Colab بحسابك ونستخدم رصيده.</p></section>
+  <button class="button full" id="dubStart" disabled>ابدأ</button><p class="micro">نرسل صوت الفيديو بس إلى Colab بحسابك.</p></section>
  <section data-step="split"><p class="dub-lead">نفصل كلام الأشخاص عن صوت المحيط… خلّ الصفحة مفتوحة.</p><p class="notice" id="dubSplitStatus" role="status"></p><div id="dubColabRun"></div></section>
  <section data-step="record"><div class="dub-card"><div class="dub-card-head"><b id="dubLineTitle"></b><button type="button" class="dub-spk" id="dubSpk" title="اضغط لتغيير الشخصية" hidden></button><span id="dubLineTime"></span></div>
   <div class="dub-stage"><video id="dubPlayer" class="dub-video" playsinline muted></video><div class="dub-count" id="dubCount" hidden></div></div><div class="dub-text" id="dubText"></div><div class="dub-cut" id="dubCut" hidden><p id="dubCutPreview"></p><div class="dub-cut-actions"><button type="button" class="button" id="dubCutDo">✂ قص هنا</button><button type="button" class="button secondary" id="dubCutNo">إلغاء</button></div></div>
@@ -175,5 +175,5 @@ export function mountDub(content,{onResult}){
  });
  const picker=mountFilePicker(q('#dubFile'),{accept:'video/*'});
  go(colab.steps?.current==='file'?'video':'connect');
- return{pick(){if(step==='video')picker.open();},load(files){const f=files?.[0];if(f&&f.type.startsWith('video/')){const t=new DataTransfer();t.items.add(f);q('#dubFile').files=t.files;q('#dubFile').onchange();}},dispose(){disposed=true;stopPlayback();try{recorder?.stop();}catch{}mic?.getTracks().forEach(t=>t.stop());colab?.dispose?.();picker.dispose();audioCtx?.close?.();for(const u of urls)URL.revokeObjectURL(u);}};
+ return{pick(){if(step==='video')picker.open();},load(files){const f=files?.[0];if(f&&f.type.startsWith('video/')){const t=new DataTransfer();t.items.add(f);q('#dubFile').files=t.files;q('#dubFile').dispatchEvent(new Event('change'));}},dispose(){disposed=true;stopPlayback();try{recorder?.stop();}catch{}mic?.getTracks().forEach(t=>t.stop());colab?.dispose?.();picker.dispose();audioCtx?.close?.();for(const u of urls)URL.revokeObjectURL(u);}};
 }

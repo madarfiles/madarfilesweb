@@ -41,7 +41,10 @@ export async function driveUpload(file,token,{name,signal,onProgress=()=>{}}={})
   for(;;){
    let r;try{r=await putChunk(url,bytes.subarray(sent-offset),`bytes ${sent}-${end-1}/${file.size}`,signal,loaded=>report(sent+loaded));}catch(e){if(e.name==='AbortError'||attempt++>=3)throw e;r=null;}
    if(r&&(r.status===200||r.status===201)){result=JSON.parse(r.body||'{}');sent=end;break;}
-   if(r&&r.status===308){const got=/bytes=0-(\d+)/.exec(r.range||'');const next=got?Number(got[1])+1:sent;if(next>=end){sent=end;break;}if(attempt++>=3)throw driveError(308,'INCOMPLETE');sent=Math.max(offset,next);continue;}
+   if(r&&r.status===308){const got=/bytes=0-(\d+)/.exec(r.range||'');
+    // Some browsers can't read Google's Range header; a 308 after a full chunk means it was stored
+    // (Colab still verifies every part's hash, so a wrong guess can't corrupt the result).
+    const next=got?Number(got[1])+1:(r.range==null?end:sent);if(next>=end){sent=end;break;}if(attempt++>=3)throw driveError(308,'INCOMPLETE');sent=Math.max(offset,next);continue;}
    if(r&&![408,429,500,502,503,504].includes(r.status))throw driveError(r.status,'CHUNK');
    if(attempt>3)throw driveError(r?.status||0,'RETRIES');await sleep(800*attempt,signal||new AbortController().signal);
    // Ask Google how much it has, then continue from there.

@@ -82,3 +82,24 @@ html:has(dialog[open]),body:has(dialog[open]){overflow:hidden;overscroll-behavio
 .dub-dots{gap:8px}.dub-dot{width:16px;height:16px;box-shadow:none;background:color-mix(in srgb,var(--spk,#b9b9b9) 40%,#fff);border:2px solid color-mix(in srgb,var(--spk,#b9b9b9) 80%,#000 0%)}
 .dub-dot.done{background:var(--spk,var(--green));border-color:#2f3e3c}.dub-dot.current{background:var(--spk,var(--orange));border-color:#e07a5f;transform:scale(1.35);box-shadow:0 0 0 2px #fff,0 0 0 4px #e07a5f}
 .dub-hint{font-size:12.5px}
+/* Scrolling stays, the bars don't: the site looks like an app, not a web page. */
+html,body,dialog,*{scrollbar-width:none;-ms-overflow-style:none}
+*::-webkit-scrollbar{display:none;width:0;height:0}
+.picked-card{display:flex;align-items:center;gap:12px;padding:14px;border-radius:16px;background:#e6efe1;border:1.5px solid #9fbf9a;animation:pickedIn .35s ease}
+.picked-mark{flex:none;width:38px;height:38px;border-radius:50%;display:grid;place-items:center;background:#3f6b4f;color:#fff;font-weight:800;font-size:19px}
+.picked-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.picked-text b{font-size:15px;color:#25403a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.picked-text small{font-size:12.5px;color:#56705f}
+.picked-change{flex:none;font-weight:700;color:#2e5545;padding:8px 10px;border-radius:10px;background:#fff8}
+.typed-picker.has-file{padding:8px;background:transparent;border-color:transparent}
+.picked-list{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.stop-done{background:#e3ead5!important;color:#2e5545!important}
+@keyframes pickedIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+#colabFilename{display:none}
+#pickTool:has(~#fileChips .picked-card){display:none}
+.personal-top{align-items:center;flex-wrap:nowrap}
+.personal-top>.favorite-toggle{min-height:40px;width:40px;padding:0;font-size:20px;line-height:1;border-radius:50%;flex:none}
+.preset-panel{min-width:0!important;padding:8px 12px;border-radius:12px}
+.preset-panel summary{font-size:13.5px;min-height:22px}
+.preset-panel[open]{flex-basis:100%}
+.personal-top:has(.preset-panel[open]){flex-wrap:wrap}
