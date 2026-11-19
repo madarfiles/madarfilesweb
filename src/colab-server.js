@@ -33,6 +33,8 @@ export function kernelMessage(data){
  if(text.length>1048576)throw new PublicError('رد محرك Colab أكبر من الحد · WS_FRAME_SIZE',502);
  return JSON.parse(text);
 }
+// A signal that also aborts after ms (without AbortSignal.any/timeout, which some runtimes lack).
+function capped(signal,ms){const c=new AbortController();const stop=()=>c.abort();const t=setTimeout(stop,ms);t.unref?.();if(signal?.aborted)stop();else signal?.addEventListener?.('abort',stop,{once:true});return c.signal;}
 export async function execute(ws,code,signal,session=crypto.randomUUID()){
  const id=crypto.randomUUID();
  return new Promise((resolve,reject)=>{
@@ -54,7 +56,7 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
  const incoming=request.signal;
  if(incoming?.aborted)controller.abort();
  else incoming?.addEventListener?.('abort',disconnect,{once:true});
- const timer=setTimeout(disconnect,45000),signal=controller.signal;
+ const began=Date.now(),timer=setTimeout(disconnect,25000),signal=controller.signal;
  let stage='request';
  const json=(body,status=200)=>new Response(JSON.stringify(body),{status,headers:{...security,'Content-Type':'application/json; charset=utf-8','Cache-Control':'private, no-store'}});
  try{
@@ -150,19 +152,22 @@ export async function colabAPI(request,security={},fetcher=fetch,context=null){
    if(b.jobId)await put('state.json',JSON.stringify({state:'queued',message:'العملية في انتظار عامل الجلسة المشتركة…',updated:Date.now()/1000}));
    let last;
    for(let attempt=0;attempt<2;attempt++){
+    // A second try only if there's time for it inside this request; otherwise the page asks again.
+    if(attempt&&Date.now()-began>12000)break;
     last=null;
     if(attempt){const fresh=await cloud('GET','v1beta/'+b.runtime);if(fresh.name!==b.runtime||!fresh.connectionInfo?.url||!fresh.connectionInfo.token)throw new PublicError('تعذر تجديد اتصال الجلسة',502);base=runtimeURL(fresh.connectionInfo.url);headers={'X-Colab-Runtime-Proxy-Token':fresh.connectionInfo.token,'X-Colab-Client-Agent':'madarfiles'};}
     try{
      const session=crypto.randomUUID();stage='kernel-start';
-     const r=await fetcher(new URL('api/kernels/'+kernel+'/channels?session_id='+session,base).href,{headers:{...headers,Origin:base.origin,Upgrade:'websocket'},redirect:'manual',signal});
+     const r=await fetcher(new URL('api/kernels/'+kernel+'/channels?session_id='+session,base).href,{headers:{...headers,Origin:base.origin,Upgrade:'websocket'},redirect:'manual',signal:capped(signal,9000)});
      await rejectRedirect(r);if(!r.webSocket){await r.body?.cancel();const e=new PublicError('تعذر فتح قناة محرك Colab · WS_HTTP_'+r.status,502);e.retryable=[401,403,429,500,502,503,504].includes(r.status);throw e;}
      await execute(r.webSocket,code,signal,session);
      // The job's status file is authoritative, even when the websocket closes after launch.
     }catch(e){last=e;if(signal.aborted)throw e;}
-    for(let poll=0;poll<6;poll++){const state=await currentState();if(state)return json({started:true,state:state.state});await delay(500,signal);}
+    for(let poll=0;poll<4;poll++){const state=await currentState();if(state)return json({started:true,state:state.state});await delay(500,signal);}
     if(last&&!last.retryable)throw last;
    }
-   if(last)throw last;throw new PublicError('وصل أمر التشغيل لكن لم يظهر تقدم المحرك · WORKER_NOT_STARTED؛ استرجع الجلسة لإعادة التحقق',502);
+   // Not confirmed yet (fresh machine, slow kernel channel): the page waits and asks again.
+   return json({started:false,pending:true,code:last?.kernelCode||'WORKER_NOT_STARTED'});
   }
   if(action==='status'){try{const [file,healthFile]=await Promise.all([jup('GET','api/contents/'+jobPath+'/state.json?content=1&format=text'),b.jobId?jup('GET','api/contents/madar_web/service.json?content=1&format=text').catch(()=>null):null]);const state=JSON.parse(file.content);if(!['queued','setup','gpu','separating','downloading','processing','done','error'].includes(state.state)||typeof state.message!=='string')throw new Error();if(b.jobId){try{const health=healthFile?JSON.parse(healthFile.content):{};state.service={heartbeat:health.heartbeat,state:health.state,activeJob:health.activeJob};}catch{}}return json(state);}catch(e){if(e.status===404)return json({state:'waiting',message:'لم يبدأ المحرك بعد؛ إذا اكتمل الرفع اضغط بدء الفصل'});throw e;}}
   if(action==='download'){if(b.artifact!==undefined&&b.artifact!=='captions')throw new PublicError('ملف نتيجة غير صالح');const outputPrefix=b.artifact==='captions'?'captions':'output';if(!Number.isSafeInteger(b.index)||b.index<0||b.index>127)throw new PublicError('جزء تنزيل غير صالح');if(b.binary===true&&(rawUnavailable.get(b.runtime)||0)<Date.now()){

@@ -230,12 +230,18 @@ def fetch_input(file_id, dest, part_size, chunks):
     return size, digest.hexdigest()
 
 
-def put_output(path, job):
+def put_output(path, job, reason=False):
     """Uploads the result to the hidden Drive folder so the page downloads it directly.
-    Returns the file id or None (then the page downloads through the site as before)."""
+    Returns the file id or None (then the page downloads through the site as before);
+    with reason=True returns (id, why) so the support details can say what went wrong."""
+    file_id, why = _put_output(path, job)
+    return (file_id, why) if reason else file_id
+
+
+def _put_output(path, job):
     auth_token = token()
     if not auth_token:
-        return None
+        return None, 'NO_TOKEN'
     try:
         import requests
         auth = {'Authorization': 'Bearer ' + auth_token}
@@ -246,15 +252,15 @@ def put_output(path, job):
                           headers={**auth, 'X-Upload-Content-Type': 'application/octet-stream', 'X-Upload-Content-Length': str(size)})
         location = r.headers.get('Location', '')
         if r.status_code != 200 or not location.startswith('https://www.googleapis.com/upload/drive/v3/files'):
-            return None
+            return None, f'START_HTTP_{r.status_code}'
         with open(path, 'rb') as f:
             r = requests.put(location, data=f, headers={'Content-Length': str(size), 'Content-Type': 'application/octet-stream'}, timeout=(15, 900))
         if r.status_code not in (200, 201):
-            return None
+            return None, f'PUT_HTTP_{r.status_code}'
         file_id = r.json().get('id')
-        return file_id if isinstance(file_id, str) else None
-    except Exception:
-        return None
+        return (file_id, '') if isinstance(file_id, str) else (None, 'NO_ID')
+    except Exception as exc:
+        return None, type(exc).__name__
 
 
 def _cleanup_io(auth, requests, older=6*3600):

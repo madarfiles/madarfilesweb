@@ -7,9 +7,20 @@ PART = 2 * 1024 * 1024
 _SEPARATION_READY = False
 
 
+_EVENTS = []
+_LAST_KEY = ['']
+
+
 def status(state, message, **extra):
+    # Every distinct step is kept with its exact time, so the page's support details show the
+    # real server timeline even though it only polls every few seconds.
+    key = state + '|' + re.sub(r'[\d٠-٩.,٪%]+', '#', str(message))
+    if key != _LAST_KEY[0]:
+        _LAST_KEY[0] = key
+        _EVENTS.append({'t': round(time.time(), 1), 's': state, 'm': str(message)[:160]})
+        del _EVENTS[:-60]
     tmp = ROOT/'state.tmp'
-    tmp.write_text(json.dumps(dict(state=state, message=message, updated=time.time(), **extra), ensure_ascii=False))
+    tmp.write_text(json.dumps(dict(state=state, message=message, updated=time.time(), events=_EVENTS[-60:], **extra), ensure_ascii=False))
     tmp.replace(ROOT/'state.json')
 
 
@@ -223,8 +234,10 @@ def main():
             if drive_token():
                 status('downloading', 'نجهز النتيجة للتنزيل السريع عبر Google Drive…')
                 began = time.monotonic()
-                drive_out = put_output(output, ROOT.name)
-                status('downloading', f'النتيجة في Drive · {output.stat().st_size/1048576:.2f} MB في {time.monotonic()-began:.1f} ث' if drive_out else 'تعذر وضع النتيجة في Drive؛ التنزيل عن طريق الموقع')
+                drive_out, why = put_output(output, ROOT.name, reason=True)
+                status('downloading', f'النتيجة في Drive · {output.stat().st_size/1048576:.2f} MB في {time.monotonic()-began:.1f} ث' if drive_out else f'تعذر وضع النتيجة في Drive ({why})؛ التنزيل عن طريق الموقع')
+            else:
+                status('downloading', 'لا يوجد تصريح Drive في الجلسة؛ التنزيل عن طريق الموقع')
             save_later(cfg.get('task', 'separate'))
         except Exception:
             pass
