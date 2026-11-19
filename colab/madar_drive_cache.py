@@ -252,11 +252,15 @@ def _put_output(path, job):
                           headers={**auth, 'X-Upload-Content-Type': 'application/octet-stream', 'X-Upload-Content-Length': str(size)})
         location = r.headers.get('Location', '')
         if r.status_code != 200 or not location.startswith('https://www.googleapis.com/upload/drive/v3/files'):
-            return None, f'START_HTTP_{r.status_code}'
+            try:why=((r.json().get('error') or {}).get('errors') or [{}])[0].get('reason') or ''
+            except Exception:why=''
+            return None, f'START_HTTP_{r.status_code}' + (f'_{why}'[:60] if why else '')
         with open(path, 'rb') as f:
             r = requests.put(location, data=f, headers={'Content-Length': str(size), 'Content-Type': 'application/octet-stream'}, timeout=(15, 900))
         if r.status_code not in (200, 201):
-            return None, f'PUT_HTTP_{r.status_code}'
+            try:why=((r.json().get('error') or {}).get('errors') or [{}])[0].get('reason') or ''
+            except Exception:why=''
+            return None, f'PUT_HTTP_{r.status_code}' + (f'_{why}'[:60] if why else '')
         file_id = r.json().get('id')
         return (file_id, '') if isinstance(file_id, str) else (None, 'NO_ID')
     except Exception as exc:
