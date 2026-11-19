@@ -112,9 +112,11 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
  const clockText=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
  const paint=()=>{if(disposed)return;const box=q('#colabProgress');if(!rail){box.textContent=lastText;return;}box.textContent='الخطوة '+(rail.at+1)+' من '+rail.steps.length+' · '+rail.steps[rail.at]+(lastText?' — '+lastText:'')+' · مضى '+clockText((Date.now()-rail.began)/1000);};
  const message=t=>{lastText=userProgress(t);paint();};
- const startRail=steps=>{stopRail();rail={steps,at:0,began:Date.now(),timer:setInterval(paint,1000)};};
- const step=name=>{if(!rail)return;const i=rail.steps.indexOf(name);if(i>=0&&i>=rail.at){rail.at=i;paint();}};
- const stopRail=()=>{if(!rail)return;clearInterval(rail.timer);rail=null;paint();};
+ const startRail=steps=>{stopRail();rail={steps,at:0,began:Date.now(),stepAt:Date.now(),timer:setInterval(paint,1000)};};
+ // How long each stage took, for the support details: shows where the time really goes.
+ const stageDone=()=>{try{logAllocation(rail.steps[rail.at]+' · '+clockText((Date.now()-rail.stepAt)/1000));}catch{}rail.stepAt=Date.now();};
+ const step=name=>{if(!rail)return;const i=rail.steps.indexOf(name);if(i>=0&&i>=rail.at){if(i>rail.at)stageDone();rail.at=i;paint();}};
+ const stopRail=()=>{if(!rail)return;stageDone();clearInterval(rail.timer);rail=null;paint();};
  const rate=p=>Math.round(p.percent)+'٪'+(p.bytesPerSecond>0?' · '+(p.bytesPerSecond/1048576).toFixed(1)+' MB/s · باقي '+(p.remainingSeconds>=60?clockText(p.remainingSeconds)+' دقيقة':p.remainingSeconds+' ثانية'):' · نقيس السرعة');
  // Sending the file: straight to the visitor's Drive when allowed (full speed, starts while
  // Google is still preparing the session); otherwise through the site, three parts at a time.
@@ -192,6 +194,7 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
  // One Colab session for the whole site (free accounts allow only one): a new tool continues in
  // the open session when it is idle and has the GPU this tool needs; otherwise every other
  // session is closed first. A session with a job still running is never closed silently.
+ let closedAt=0;
  async function adoptOrCloseOthers(engine,signal){
   const others=sessions.list().filter(j=>j.tool!==toolKey&&j.runtime);if(!others.length)return false;
   for(const other of others){
@@ -199,7 +202,7 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
    if(state&&!['done','error','waiting'].includes(state)){const title=cloudCatalog.find(t=>t.task===other.tool)?.title||(other.tool==='separate'?'إزالة الموسيقى':other.tool);throw Error('فيه عملية شغالة في «'+title+'». انتظرها تخلص أو افتحها واضغط «إنهاء الجلسة»، وبعدها ارجع هنا.');}
    const fits=state&&other.allocated&&(other.gpu===engine||cpuOK)&&(!wantsHighMemory()||other.highMemory)&&!job;
    if(fits){sessions.set(other.tool,null);job={...other,kind:toolKey};delete job.tool;job.takeover=true;job.adopted=true;remember(job);continue;}
-   message('نقفل جلستك السابقة عشان نفتح جلسة لهذه الأداة…');sessions.clearRuntime(other.runtime);observedRuntimes=observedRuntimes.filter(n=>n!==other.runtime);try{await rawAPI('stop',{runtime:other.runtime},signal,0);}catch(e){if(signal.aborted)throw e;}
+   message('نقفل جلستك السابقة عشان نفتح جلسة لهذه الأداة…');closedAt=Date.now();sessions.clearRuntime(other.runtime);observedRuntimes=observedRuntimes.filter(n=>n!==other.runtime);try{await rawAPI('stop',{runtime:other.runtime},signal,0);}catch(e){if(signal.aborted)throw e;}
   }
   updateSessionPanel();return !!job;
  }
@@ -222,10 +225,11 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
   if(job?.runtime){/* kept */}else if(await adoptOrCloseOthers(engine,signal)){
    message('نكمل في جلستك المفتوحة '+(job.gpu||'Colab')+' بدل ما ننتظر جهاز جديد…');
   }else{
+   let releaseWaits=0;
    for(let attempt=0;;attempt++){
     const id=crypto.randomUUID(),requestId=crypto.randomUUID();job={runtime:'runtimes/madarweb-'+id,id,requestId,gpu:engine,highMemory:engine==='CPU'?false:wantsHighMemory(),kind:toolKey,fallbackOK:cpuOK&&engine!=='CPU'&&!!account?.cpu};remember(job);logAllocation('طلب '+engine+(job.highMemory?' · ذاكرة عالية':' · ذاكرة قياسية'));
     try{const op=await api('create',{id,requestId,gpu:engine,highMemory:job.highMemory},signal);if(op.failed){const e=Error('رفضت Google تخصيص '+engine+' · '+(op.failureCode||'RESOURCE_UNAVAILABLE'));e.allocationRejected=true;throw e;}if(!op.done)job.operation=op.name;else job.allocated=true;remember(job);await waitRuntime(signal);delete job.fallbackOK;logAllocation('تم تخصيص '+engine);break;}
-    catch(e){logAllocation(e.message);if((e.allocationRejected||e.gpuSlow)&&job?.fallbackOK&&!signal.aborted){try{await rawAPI('stop',{runtime:job.runtime},signal,0);}catch{}job=null;remember(null);engine='CPU';cpuNotice();message('نحوّل على المعالج…');continue;}if(e.gpuSlow)throw e;if(!e.allocationRejected||attempt>0)throw e;const chosen=await chooseReplacement(signal);if(!chosen)throw e;await rawAPI('stop',{runtime:chosen.runtime},signal);sessions.clearRuntime(chosen.runtime);observedRuntimes=observedRuntimes.filter(n=>n!==chosen.runtime);await rawAPI('stop',{runtime:job.runtime},signal);job=null;remember(null);message('أُغلقت الجلسة المختارة؛ إعادة طلب '+engine+' مرة واحدة…');}
+    catch(e){logAllocation(e.message);if(e.allocationRejected&&closedAt&&Date.now()-closedAt<90000&&releaseWaits<5&&!signal.aborted){releaseWaits++;try{await rawAPI('stop',{runtime:job.runtime},signal,0);}catch{}job=null;remember(null);message('Google تقفل جلستك السابقة؛ نعيد الطلب بعد ثواني ('+releaseWaits+'/5)…');await pause(8000,signal);attempt--;continue;}if((e.allocationRejected||e.gpuSlow)&&job?.fallbackOK&&!signal.aborted){try{await rawAPI('stop',{runtime:job.runtime},signal,0);}catch{}job=null;remember(null);engine='CPU';cpuNotice();message('نحوّل على المعالج…');continue;}if(e.gpuSlow)throw e;if(!e.allocationRejected||attempt>0)throw e;const chosen=await chooseReplacement(signal);if(!chosen)throw e;await rawAPI('stop',{runtime:chosen.runtime},signal);sessions.clearRuntime(chosen.runtime);observedRuntimes=observedRuntimes.filter(n=>n!==chosen.runtime);await rawAPI('stop',{runtime:job.runtime},signal);job=null;remember(null);message('أُغلقت الجلسة المختارة؛ إعادة طلب '+engine+' مرة واحدة…');}
    }
   }
   job.jobId=crypto.randomUUID();job.state='preparing';job.hasLocalResult=false;job.lastUsed=Date.now();job.kind=taskSpec?.task|| (downloadMode?'download':'separate');delete job.config;remember(job);partialParts.clear();resultKey='';transferKey='';

@@ -109,7 +109,7 @@ def export_media(source,target,quality='balanced',audio_source=None,start=0,dura
     elif fmt=='avi':codec=['-c:v','mpeg4','-q:v','4'];audio=['-c:a','libmp3lame','-b:a','192k']
     else:
         copy=bool(audio_source) and not start and not duration and (fmt=='mkv' or compatible_mp4(source)[0])
-        codec=['-c:v','copy'] if copy else video_encoder()
+        codec=(['-c:v','copy']+(['-tag:v','hvc1'] if fmt in {'mp4','mov'} and video_codec(source)=='hevc' else [])) if copy else video_encoder()
         if not copy:
             flag='-cq' if 'h264_nvenc' in codec else '-crf';codec=list(codec);codec[codec.index(flag)+1]=q
         audio=['-c:a','aac','-b:a','192k']
@@ -181,16 +181,22 @@ def media_streams(path):
     return json.loads(result.stdout).get('streams',[])
 
 
+def video_codec(path):
+    try:return next((s for s in media_streams(path) if s.get('codec_type')=='video'),{}).get('codec_name')
+    except Exception:return None
+
+
 def compatible_mp4(path):
     streams = media_streams(path)
     video = next((s for s in streams if s.get('codec_type')=='video'),{})
     audio = next((s for s in streams if s.get('codec_type')=='audio'),None)
-    return video.get('codec_name')=='h264' and video.get('pix_fmt') in {'yuv420p','yuvj420p','nv12'}, audio is None or audio.get('codec_name')=='aac'
+    # H.264, and HEVC (phones and TikTok/Instagram play it): keep the original stream, never re-encode.
+    return video.get('codec_name') in {'h264','hevc'} and video.get('pix_fmt') in {'yuv420p','yuvj420p','nv12','yuv420p10le'}, audio is None or audio.get('codec_name')=='aac'
 
 
 def prepare_mp4(source, target, report):
     copy_video, copy_audio = compatible_mp4(source)
-    codec = ['-c:v','copy'] if copy_video else video_encoder()
+    codec = (['-c:v','copy']+(['-tag:v','hvc1'] if video_codec(source)=='hevc' else [])) if copy_video else video_encoder()
     def encode(chosen):
         return subprocess.run(['ffmpeg','-hide_banner','-loglevel','error','-nostdin','-y','-protocol_whitelist','file,pipe','-i',str(source),'-map','0:v:0','-map','0:a:0?',*chosen,*(['-c:a','copy'] if copy_audio else ['-c:a','aac','-b:a','160k']),'-map_metadata','-1','-movflags','+faststart',str(target)],check=True,timeout=1200)
     report('downloading','تجهيز MP4 دون إعادة ترميز الفيديو أو تغيير جودته' if copy_video else 'ترميز الفيديو على GPU · NVENC' if 'h264_nvenc' in codec else 'ترميز CPU لهذا الفيديو؛ '+nvenc_explanation())

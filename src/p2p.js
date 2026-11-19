@@ -67,7 +67,7 @@ export async function receiveFile(id,{report,onMeta,onProgress,abort}){
 export function mountQRShare(content,spec,ctx){
  content.innerHTML='<div class="qr-modes" role="tablist"><button type="button" class="button" data-mode="direct" role="tab">إرسال مباشر · بدون حساب</button><button type="button" class="button secondary" data-mode="drive" role="tab">رابط دائم عبر Drive</button></div><div id="qrModeBody"></div>';
  const body=content.querySelector('#qrModeBody');let active,mode;
- const show=next=>{if(mode===next)return;active?.dispose();mode=next;for(const b of content.querySelectorAll('[data-mode]')){const on=b.dataset.mode===next;b.className='button'+(on?'':' secondary');b.setAttribute('aria-selected',String(on));}active=next==='drive'?mountDriveQR(body,spec,ctx):mountDirect(body,spec,ctx);};
+ const show=next=>{if(mode===next)return;const keep=[...(body.querySelector('input[type=file]')?.files||[])];active?.dispose();mode=next;for(const b of content.querySelectorAll('[data-mode]')){const on=b.dataset.mode===next;b.className='button'+(on?'':' secondary');b.setAttribute('aria-selected',String(on));}active=next==='drive'?mountDriveQR(body,spec,ctx):mountDirect(body,spec,ctx);if(keep.length)active.load?.(keep);};
  for(const b of content.querySelectorAll('[data-mode]'))b.onclick=()=>show(b.dataset.mode);
  show('direct');return{pick(){active?.pick?.();},load(files){active?.load?.(files);},dispose(){active?.dispose();}};
 }

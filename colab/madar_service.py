@@ -2,7 +2,7 @@
 import gc, json, os, signal, subprocess, sys, time, threading
 from pathlib import Path
 BASE=Path(__file__).resolve().parent
-VERSION=18
+VERSION=19
 
 def atomic(path,data):
  tmp=path.with_suffix('.tmp');tmp.write_text(json.dumps(data,ensure_ascii=False));tmp.replace(path)

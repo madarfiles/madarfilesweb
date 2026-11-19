@@ -86,20 +86,21 @@ def download_clip(config, root, report):
     def suitable(info, *, incomplete):
         if info.get('is_live'): return 'البث المباشر غير مدعوم؛ استخدم مقطعًا مكتملًا'
     options = dict(outtmpl=str(out/'clip.%(ext)s'), noplaylist=True, max_filesize=LIMIT,
-        format='bestvideo[ext=mp4][vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=1080]/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best[height<=1080]/bestvideo*[height<=1080]+bestaudio/bestvideo*+bestaudio/best',
+        format='bv*+ba/b',format_sort=['res:1080','vcodec:h264','acodec:aac','ext:mp4:m4a'],
         playlistend=1,lazy_playlist=True,merge_output_format='mp4', restrictfilenames=True, quiet=True, no_warnings=True,
         socket_timeout=20, retries=2, fragment_retries=2, concurrent_fragment_downloads=4,
         hls_prefer_native=True, external_downloader={'default':'native'}, proxy='', geo_bypass=False,
         enable_file_urls=False,
         remote_components=[], cachedir=False, progress_hooks=[progress], match_filter=suitable)
-    options['js_runtimes']={'node':{'path':javascript_runtime(root,report)}}
     host=(urlsplit(url).hostname or '').lower()
     youtube=host.endswith('youtube.com') or host=='youtu.be'
+    # Only YouTube needs a JavaScript engine; other platforms skip that download entirely.
+    if youtube:options['js_runtimes']={'node':{'path':javascript_runtime(root,report)}}
     # Several ways in: when a platform asks this server to prove it is not a bot, another client
     # often isn't asked. Each attempt starts clean.
     attempts=[{}]
     if youtube:attempts+= [{'extractor_args':{'youtube':{'player_client':['tv','web_safari']}}},{'extractor_args':{'youtube':{'player_client':['android_vr','mweb']}}}]
-    else:attempts.append({'format':'bestvideo*+bestaudio/best'})
+    else:attempts.append({'format':'b/bv*+ba','format_sort':['res:1080']})
     original = socket.getaddrinfo
     socket.getaddrinfo = public_dns(original)
     info=None
