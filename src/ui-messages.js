@@ -8,6 +8,7 @@ export function userProgress(value){
  return text.replace(/\s*·\s*[A-Z][A-Z0-9_]{4,}\b/g,'').trim()||'جارٍ المعالجة…';
 }
 export function userFailure(error){
+ if(error?.name==='AbortError'||/signal is aborted|aborted without reason|The operation was aborted/i.test(String(error?.message||'')))return 'توقفت العملية. ابدأها من جديد متى ما بغيت.';
  const code=error?.code||String(error?.message||error||'').match(/\b(?:CONTENT_REVIEW_REQUIRED|CONTENT_REVIEW_ERROR|[A-Z]+_[A-Z_]+)\b/)?.[0];
  const mediaMessages={MEDIA_NO_VIDEO:'المصدر صوت فقط. اختر صيغة صوتية بدل الفيديو.',MEDIA_NO_AUDIO:'المقطع لا يحتوي على مسار صوت يمكن فصله.',MEDIA_DECODER_UNAVAILABLE:'ترميز المصدر غير متاح في محرك هذه الجلسة.',MEDIA_INVALID_INPUT:'تعذر قراءة الملف. تحقق من سلامته واكتماله.',MEDIA_DISK_FULL:'امتلأت مساحة الجلسة. احفظ نتائجك ثم أنهِ الجلسات غير المستخدمة.',MEDIA_RESOURCE_BUSY:'موارد معالجة الوسائط مشغولة. أعد المحاولة بعد انتهاء العمليات الأخرى.',MEDIA_TIMEOUT:'انتهت مهلة معالجة الوسائط. جرّب جزءًا أقصر أو استرجع العملية.'};if(mediaMessages[code])return mediaMessages[code];
  if(error?.name==='AbortError')return 'توقف الانتظار. يمكنك استرجاع العملية أو إنهاء جلستها.';
