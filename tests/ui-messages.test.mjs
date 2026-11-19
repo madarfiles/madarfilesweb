@@ -7,7 +7,7 @@ test('product progress preserves transfer progress but hides engine internals',(
 });
 test('review, resource and connection failures give distinct actionable messages',()=>{
  assert.match(userFailure({code:'CONTENT_REVIEW_REQUIRED',message:'internal'}),/فحص المحتوى/);
- assert.match(userFailure({code:'RESOURCE_LIMIT_OR_UNAVAILABLE'}),/غير متاح/);
+ assert.match(userFailure({code:'RESOURCE_LIMIT_OR_UNAVAILABLE'}),/كرت شاشة/);
  assert.match(userFailure({status:401}),/أعد الاتصال/);
  assert.match(userFailure({code:'COLAB_TIMEOUT'}),/استرجاع العملية/);
  assert.doesNotMatch(userFailure(Error('تعذر التنفيذ · TOOL_IMPORTERROR')),/TOOL_|IMPORT/);

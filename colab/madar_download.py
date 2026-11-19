@@ -64,7 +64,9 @@ def download_clip(config, root, report):
     report('setup', 'تجهيز أداة التحميل في جلسة Colab')
     global _READY
     if not _READY:
-        subprocess.run([sys.executable,'-m','pip','install','--quiet','yt-dlp[default]==2026.10.26'],check=True,timeout=300)
+        # Platforms change every week; the newest extractor is what keeps links working.
+        try:subprocess.run([sys.executable,'-m','pip','install','--quiet','--upgrade','yt-dlp[default]'],check=True,timeout=300)
+        except Exception:subprocess.run([sys.executable,'-m','pip','install','--quiet','yt-dlp[default]==2026.10.26'],check=True,timeout=300)
         _READY=True
     from yt_dlp import YoutubeDL
     out = Path(root)/'download'
@@ -84,27 +86,46 @@ def download_clip(config, root, report):
     def suitable(info, *, incomplete):
         if info.get('is_live'): return 'البث المباشر غير مدعوم؛ استخدم مقطعًا مكتملًا'
     options = dict(outtmpl=str(out/'clip.%(ext)s'), noplaylist=True, max_filesize=LIMIT,
-        format='bestvideo[ext=mp4][vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=1080]/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best[height<=1080]',
+        format='bestvideo[ext=mp4][vcodec^=avc1][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=1080]/bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]/best[height<=1080]/bestvideo*[height<=1080]+bestaudio/bestvideo*+bestaudio/best',
         playlistend=1,lazy_playlist=True,merge_output_format='mp4', restrictfilenames=True, quiet=True, no_warnings=True,
         socket_timeout=20, retries=2, fragment_retries=2, concurrent_fragment_downloads=4,
         hls_prefer_native=True, external_downloader={'default':'native'}, proxy='', geo_bypass=False,
         enable_file_urls=False,
         remote_components=[], cachedir=False, progress_hooks=[progress], match_filter=suitable)
     options['js_runtimes']={'node':{'path':javascript_runtime(root,report)}}
+    host=(urlsplit(url).hostname or '').lower()
+    youtube=host.endswith('youtube.com') or host=='youtu.be'
+    # Several ways in: when a platform asks this server to prove it is not a bot, another client
+    # often isn't asked. Each attempt starts clean.
+    attempts=[{}]
+    if youtube:attempts+= [{'extractor_args':{'youtube':{'player_client':['tv','web_safari']}}},{'extractor_args':{'youtube':{'player_client':['android_vr','mweb']}}}]
+    else:attempts.append({'format':'bestvideo*+bestaudio/best'})
     original = socket.getaddrinfo
     socket.getaddrinfo = public_dns(original)
+    info=None
     try:
-        with YoutubeDL(options) as downloader:
-            info = downloader.extract_info(url, download=False)
-            if not info or info.get('_type') in ('playlist','multi_video'):
-                raise ValueError('استخدم رابط مقطع واحد، وليس حسابًا أو قائمة تشغيل')
-            if info.get('is_live') or info.get('has_drm'): raise ValueError('البث المباشر والمحتوى المحمي غير مدعومين')
-            downloader.process_ie_result(info, download=True)
-    except ValueError: raise
-    except Exception as exc:
-        raise ValueError(download_error(exc)) from exc
+        for n,extra in enumerate(attempts):
+            for leftover in out.glob('clip.*'):leftover.unlink(missing_ok=True)
+            try:
+                with YoutubeDL({**options,**extra}) as downloader:
+                    info = downloader.extract_info(url, download=False)
+                    if not info or info.get('_type') in ('playlist','multi_video'):
+                        raise ValueError('استخدم رابط مقطع واحد، وليس حسابًا أو قائمة تشغيل')
+                    if info.get('is_live') or info.get('has_drm'): raise ValueError('البث المباشر والمحتوى المحمي غير مدعومين')
+                    downloader.process_ie_result(info, download=True)
+                break
+            except ValueError: raise
+            except Exception as exc:
+                reason=download_error(exc)
+                retry=any(code in reason for code in ('PLATFORM_VERIFICATION','PLATFORM_NETWORK','EXTRACTOR_FAILED','JS_CHALLENGE','DOWNLOAD_NETWORK','DOWNLOAD_FAILED'))
+                if n+1<len(attempts) and retry:
+                    report('setup',f'المنصة ما ردّت من أول مرة؛ نجرب طريقة ثانية ({n+2}/{len(attempts)})…');time.sleep(2);continue
+                raise ValueError(reason) from exc
     finally:
         socket.getaddrinfo = original
+    title=re.sub(r'[\x00-\x1f<>:"/\\|?*]+',' ',str((info or {}).get('title') or '')).strip()[:90]
+    try:(Path(root)/'meta.json').write_text(json.dumps({'title':title},ensure_ascii=False),encoding='utf-8')
+    except Exception:pass
     files = [p for p in out.glob('clip.*') if p.suffix.lower() in ('.mp4','.mkv','.webm','.mov') and p.is_file()]
     if not files: raise ValueError('لم تُنتج المنصة ملف فيديو قابلًا للتنزيل')
     source=max(files,key=lambda p:p.stat().st_size)

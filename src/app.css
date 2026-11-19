@@ -103,3 +103,10 @@ html,body,dialog,*{scrollbar-width:none;-ms-overflow-style:none}
 .preset-panel summary{font-size:13.5px;min-height:22px}
 .preset-panel[open]{flex-basis:100%}
 .personal-top:has(.preset-panel[open]){flex-wrap:wrap}
+.chain-actions{margin-top:16px;padding:14px;border-radius:18px;background:#eef3ea;border:1px solid #d5e2cf}
+.chain-actions h4{margin:0 0 10px;font-size:16px;color:#25403a}
+.chain-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.chain-btn{display:flex;align-items:center;gap:8px;min-height:52px;padding:10px 12px;border-radius:14px;border:1px solid #cfdcc8;background:#fff;color:#25403a;font:inherit;font-size:14px;font-weight:600;text-align:start;cursor:pointer}
+.chain-btn span{font-size:20px;line-height:1}
+.chain-btn:active{transform:scale(.98)}
+.cpu-note{background:#fff6e6;border-color:#f0dcb4}

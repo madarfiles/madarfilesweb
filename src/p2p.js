@@ -2,7 +2,7 @@
 // sender's browser to the receiver's; the server only relays the short connection
 // descriptions (see p2p-server.js). No Google account is needed.
 import QRCode from 'qrcode';
-import {pickerAccept,requireAccepted,mountFilePicker} from './file-picker.js';
+import {pickerAccept,requireAccepted,mountFilePicker,injectFiles} from './file-picker.js';
 import {mountDriveQR} from './drive-qr.js';
 import {wireSave} from './save-file.js';
 
@@ -69,7 +69,7 @@ export function mountQRShare(content,spec,ctx){
  const body=content.querySelector('#qrModeBody');let active,mode;
  const show=next=>{if(mode===next)return;active?.dispose();mode=next;for(const b of content.querySelectorAll('[data-mode]')){const on=b.dataset.mode===next;b.className='button'+(on?'':' secondary');b.setAttribute('aria-selected',String(on));}active=next==='drive'?mountDriveQR(body,spec,ctx):mountDirect(body,spec,ctx);};
  for(const b of content.querySelectorAll('[data-mode]'))b.onclick=()=>show(b.dataset.mode);
- show('direct');return{pick(){active?.pick?.();},dispose(){active?.dispose();}};
+ show('direct');return{pick(){active?.pick?.();},load(files){active?.load?.(files);},dispose(){active?.dispose();}};
 }
 
 function mountDirect(content,spec,{onResult}){
@@ -81,7 +81,7 @@ function mountDirect(content,spec,{onResult}){
   }catch(e){if(e.name!=='AbortError'&&!controller?.signal.aborted)msg(e.message);else msg('أُوقف الإرسال.');}
   finally{controller=null;if(!disposed){q('#p2pRun').textContent='أنشئ رمز الإرسال';q('#p2pFile').disabled=false;}}};
  const picker=mountFilePicker(q('#p2pFile'),{accept:spec.mime});q('#p2pFile').addEventListener('madar:picked',()=>msg('جاهز — اضغط «أنشئ رمز الإرسال».'));
- return{pick(){picker.open();},dispose(){disposed=true;picker.dispose();controller?.abort();}};
+ return{pick(){picker.open();},load(files){injectFiles(q('#p2pFile'),files);},dispose(){disposed=true;picker.dispose();controller?.abort();}};
 }
 
 // Opens the receive screen when the page URL carries #get=<id>.

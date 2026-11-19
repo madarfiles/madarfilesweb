@@ -14,7 +14,7 @@ export function userFailure(error){
  if(error?.status===401)return 'انتهى الاتصال بحسابك. أعد الاتصال ثم استرجع العملية.';
  if(code==='CONTENT_REVIEW_REQUIRED')return 'تعذّر عرض النتيجة بعد فحص المحتوى. يمكنك مراجعة وصف المشهد.';
  if(code==='CONTENT_REVIEW_ERROR')return 'تعذّر إكمال فحص النتيجة. يمكنك إعادة المحاولة لاحقًا.';
- if(/RESOURCE|TOO_MANY_ACTIVE|GPU_UNAVAILABLE/.test(code||''))return 'المورد السحابي غير متاح حاليًا. راجع الجلسات النشطة أو اختر موردًا آخر من الإعدادات المتقدمة.';
+ if(error?.gpuSlow||/RESOURCE|TOO_MANY_ACTIVE|GPU_UNAVAILABLE/.test(code||''))return 'Google ما عطتنا كرت شاشة فاضي الحين. هذي الأداة تحتاج كرت شاشة عشان تطلع بسرعة وجودة، فجرّبها بعد دقائق. الأدوات الخفيفة مثل التحميل والتحويل تتحول تلقائيًا للمعالج.';
  if(code==='GPU_MEMORY')return 'المورد المختار لا يكفي لهذه العملية. قلّل المدة أو اختر موردًا أكبر.';
  if(/TIMEOUT|NETWORK|WORKER_STOPPED/.test(code||''))return 'انقطع الاتصال أو تأخر الرد. يمكنك استرجاع العملية دون بدء رفع جديد.';
  if(/^(TOOL_|MODEL_|PYTHON_|DEPENDENCY_|GPU_LIBRARY)/.test(code||''))return 'تعذّر تجهيز الأداة أو إكمال المعالجة. أعد المحاولة، أو انسخ تفاصيل الدعم إذا تكرر ذلك.';

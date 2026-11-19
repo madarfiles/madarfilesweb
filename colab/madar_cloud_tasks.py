@@ -338,9 +338,9 @@ def process(task, source, cfg, root, report):
  if task=='asr' and not cfg.get('_basic_asr'):return caption_workflow(source,cfg,root,report)
  install(task,report)
  if task=='ocr':
-  cuda();import easyocr;import numpy as np
+  import easyocr,torch;import numpy as np
   report('processing','تحميل نموذج OCR واستخراج النص')
-  reader=cached_model('ocr-'+cfg['language'],lambda:easyocr.Reader({'ar':['ar','en'],'en':['en'],'ja':['ja','en']}[cfg['language']],gpu=True),report)
+  reader=cached_model('ocr-'+cfg['language'],lambda:easyocr.Reader({'ar':['ar','en'],'en':['en'],'ja':['ja','en']}[cfg['language']],gpu=torch.cuda.is_available()),report)
   def text(image):return '\n'.join(reader.readtext(np.asarray(image.convert('RGB')),detail=0,paragraph=True))
   if cfg['ext']=='pdf':
    import pypdfium2 as pdfium
@@ -359,12 +359,13 @@ def process(task, source, cfg, root, report):
   if not content.strip():raise ValueError('لم يُكتشف نص واضح؛ جرّب صورة أوضح')
   out=root/'ocr.txt';out.write_text(content,encoding='utf-8');return out
  if task=='cutout':
-  cuda();preload_cuda();import onnxruntime as ort
-  if hasattr(ort,'preload_dlls'):ort.preload_dlls(directory='')
+  import torch;gpu=torch.cuda.is_available()
+  if gpu:preload_cuda()
+  import onnxruntime as ort
+  if gpu and hasattr(ort,'preload_dlls'):ort.preload_dlls(directory='')
   from rembg import new_session, remove
-  report('processing','تحميل نموذج العزل واختبار مزود CUDA')
-  session=cached_model('cutout',lambda:new_session('isnet-general-use',providers=['CUDAExecutionProvider']),report)
-  if 'CUDAExecutionProvider' not in session.inner_session.get_providers():raise ValueError('لم يتفعّل CUDA لمحرك العزل؛ لم يبدأ تنفيذ على CPU')
+  report('processing','تحميل نموذج العزل'+(' على GPU' if gpu else ' على المعالج'))
+  session=cached_model('cutout-'+('gpu' if gpu else 'cpu'),lambda:new_session('isnet-general-use',providers=['CUDAExecutionProvider','CPUExecutionProvider'] if gpu else ['CPUExecutionProvider']),report)
   image=ensure_image(source);result=remove(image,session=session);out=root/'cutout.png';result.save(out);return out
  if task=='word':
   import pypdfium2 as pdfium

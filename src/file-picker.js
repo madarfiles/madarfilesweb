@@ -41,3 +41,6 @@ export function mountFilePicker(input,{accept=input.accept}={}){
  const picked=()=>{const list=[...input.files];card?.remove();card=null;if(!list.length){heading.hidden=actions.hidden=false;return;}heading.hidden=actions.hidden=true;card=pickedCard(list,reopen);panel.prepend(card);panel.classList.add('has-file');input.dispatchEvent(new CustomEvent('madar:picked',{detail:{kind:fileKind(list[0]),files:list}}));revealAction(panel);};input.addEventListener('change',picked);
  return{open(){if(kinds.length===1)choose(kinds[0]);else{actions.querySelector('button')?.focus({preventScroll:true});panel.scrollIntoView({block:'nearest'});}},reset(){card?.remove();card=null;heading.hidden=actions.hidden=false;panel.classList.remove('has-file');},dispose(){input.removeEventListener('change',validate,true);input.removeEventListener('change',picked);panel.remove();}};
 }
+
+// Hand files to a tool's own file input as if the user had picked them.
+export function injectFiles(input,files){if(!input||!files?.length)return false;try{const t=new DataTransfer();for(const f of files)t.items.add(f);input.files=t.files;input.dispatchEvent(new Event('change'));return true;}catch{return false;}}

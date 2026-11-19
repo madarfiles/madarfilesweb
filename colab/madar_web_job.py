@@ -223,7 +223,10 @@ def main():
             save_later(cfg.get('task', 'separate'))
         except Exception:
             pass
-        status('done', 'اكتملت المعالجة؛ النتيجة جاهزة للتنزيل', **({'driveOutput': drive_out} if drive_out else {}), size=output.stat().st_size, chunks=chunks, ext=output.suffix.lower().lstrip('.'), task=cfg.get('task','separate'), designName=cfg.get('name',''),sourceName=cfg.get('sourceName',''),preview=preview,captions=captions)
+        meta={}
+        try:meta=json.loads((ROOT/'meta.json').read_text(encoding='utf-8')) if (ROOT/'meta.json').exists() else {}
+        except Exception:meta={}
+        status('done', 'اكتملت المعالجة؛ النتيجة جاهزة للتنزيل', **({'driveOutput': drive_out} if drive_out else {}), title=str(meta.get('title',''))[:90], size=output.stat().st_size, chunks=chunks, ext=output.suffix.lower().lstrip('.'), task=cfg.get('task','separate'), designName=cfg.get('name',''),sourceName=cfg.get('sourceName',''),preview=preview,captions=captions)
     except Exception as exc:
         # Detailed traceback remains in the user's runtime, never in the page response.
         import traceback
