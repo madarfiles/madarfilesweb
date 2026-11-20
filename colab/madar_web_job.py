@@ -38,7 +38,7 @@ def assemble(config):
         parent_id=config['parentJob']
         if not re.fullmatch(r'[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}',parent_id):raise ValueError('مرجع مصدر غير صالح')
         parent=ROOT.parent/parent_id;old=json.loads((parent/'config.json').read_text())
-        if config.get('task')!=old.get('task') or config.get('task') not in {'asr','ocr','cutout','word','translate','burn','convert','resize'} or any(old.get(k)!=config.get(k) for k in ['ext','size','chunks','sha256']):raise ValueError('مرجع المصدر لا يطابق العملية السابقة')
+        if config.get('task')!=old.get('task') or config.get('task') not in {'asr','ocr','cutout','word','translate','burn','convert','resize','hdr'} or any(old.get(k)!=config.get(k) for k in ['ext','size','chunks','sha256']):raise ValueError('مرجع المصدر لا يطابق العملية السابقة')
         src=parent/('source.'+config['ext'])
         if not src.is_file():raise ValueError('المصدر المحفوظ غير مكتمل؛ أعد رفع الملف بدل إعادة المحاولة من المصدر')
         digest=hashlib.sha256();size=0
@@ -99,7 +99,7 @@ def failure_details(exc,cfg):
   elif any(x in text for x in ['safetensor','weights_only','state_dict','tokenizer','from_pretrained']):code='MODEL_LOAD_FAILED'
   else:code='TOOL_'+re.sub('[^A-Z0-9_]','',kind.upper())[:60]
  friendly={'MODEL_IMPORT_INCOMPATIBLE':'تعذر توافق استيراد مكتبات النموذج؛ التشخيص يتضمن الرمز أو المكتبة الناقصة','MODEL_META_TENSOR':'أوزان النموذج غير محمّلة فعليًا؛ رُفض نقل أوزان فارغة إلى GPU','GPU_MEMORY':'نفدت ذاكرة GPU؛ قلّل مدة اللقطة أو اختر ذاكرة أكبر','MODULE_MISSING':'لم تكتمل إحدى مكتبات الأداة؛ أعد المحاولة في الجلسة نفسها','GPU_LIBRARY':'تعذر توافق مكتبة GPU؛ جرّب مسار التوافق أو جلسة جديدة','DEPENDENCY_TIMEOUT':'انتهت مهلة تجهيز المكتبات؛ أعد المحاولة في الجلسة نفسها','PROCESS_TIMEOUT':'انتهت مهلة مرحلة المعالجة؛ المصدر محفوظ للمحاولة التالية','DEPENDENCY_INSTALL':'تعذر تثبيت مكتبات الأداة المتوافقة','MEDIA_PROCESS_FAILED':'تعذر فك أو ترميز الملف؛ تحقق من وجود صوت أو فيديو صالح','MODEL_NOT_ACCESSIBLE':'ملف النموذج المطلوب غير متاح من مزوده','MODEL_DOWNLOAD_FAILED':'تعذر تنزيل ملفات النموذج؛ الملفات المكتملة محفوظة ويمكن استكمالها','MODEL_LOAD_FAILED':'تعذر تحميل النموذج أو توافق أوزانه؛ تفاصيل التشخيص مرفقة'}
- frames=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(exc.__traceback__) if Path(f.filename).name in {'madar_cloud_tasks.py','runner.py','madar_web_job.py','madar_colab_runtime.py','madar_download.py','pipeline_wan.py','transformer_wan.py','autoencoder_kl_wan.py','modeling_utils.py','modeling_m2m_100.py','import_utils.py'}][-8:]
+ frames=[{'file':Path(f.filename).name,'line':f.lineno,'function':f.name} for f in traceback.extract_tb(exc.__traceback__) if Path(f.filename).name in {'madar_cloud_tasks.py','runner.py','madar_web_job.py','madar_colab_runtime.py','madar_download.py','madar_dovi.py','pipeline_wan.py','transformer_wan.py','autoencoder_kl_wan.py','modeling_utils.py','modeling_m2m_100.py','import_utils.py'}][-8:]
  versions={}
  task=cfg.get('task','separate') if isinstance(cfg,dict) else 'unknown'
  packages=['yt-dlp','yt-dlp-ejs'] if task=='download' else ['torch','ctranslate2','faster-whisper','transformers','diffusers','onnxruntime-gpu','huggingface-hub','tokenizers','safetensors','accelerate','ftfy']
@@ -156,7 +156,7 @@ def main():
         if cfg.get('task') == 'download':
             from madar_download import download_clip
             output = download_clip(cfg, ROOT, status)
-        elif cfg.get('task') in {'ocr','cutout','word','asr','translate','burn','convert','resize','imagegen','videogen'}:
+        elif cfg.get('task') in {'ocr','cutout','word','asr','translate','burn','convert','resize','hdr','imagegen','videogen'}:
             from madar_cloud_tasks import process
             source=assemble(cfg) if cfg.get('size') else None
             output=process(cfg['task'],source,cfg,ROOT,status)

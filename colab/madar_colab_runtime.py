@@ -29,11 +29,20 @@ def install_once(key, commands, timeout=600, report=None):
     def ready():
         try: return marker.read_text() == tag
         except OSError: return False
-    if ready(): return False
     say = report or (lambda *a, **k: None)
+    how = SETUP_DIR/(key+'.how')
+    def told():
+        # The early preparation (no page to report to) may have done the work: tell the page once.
+        if report:
+            try:
+                text = how.read_text(encoding='utf-8'); how.unlink(); say('setup', text)
+            except OSError:
+                pass
+        return False
+    if ready(): return told()
     with open(SETUP_DIR/'pip.lock', 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        if ready(): return False
+        if ready(): return told()
         drive = None
         try:
             import madar_drive_cache as drive
@@ -41,7 +50,9 @@ def install_once(key, commands, timeout=600, report=None):
             got = drive.restore_libs(name, report)
             if got:
                 marker.write_text(tag)
-                say('setup', f'المكتبات جاهزة من Drive · {got[0]} MB في {got[1]} ث')
+                text = f'المكتبات جاهزة من Drive · {got[0]} MB في {got[1]} ث'
+                if report: say('setup', text)
+                else: how.write_text(text, encoding='utf-8')
                 return True
             before = drive.lib_snapshot()
         except Exception:
@@ -50,11 +61,13 @@ def install_once(key, commands, timeout=600, report=None):
         for command in commands:
             subprocess.run([sys.executable, '-m', 'pip', *command], check=True, timeout=timeout)
         marker.write_text(tag)
-        say('setup', f'ثُبتت المكتبات · {time.monotonic()-began:.1f} ث' + (' (تنحفظ في Drive للمرة الجاية)' if drive and drive.token() else ''))
+        text = f'ثُبتت المكتبات · {time.monotonic()-began:.1f} ث' + (' (تنحفظ في Drive للمرة الجاية)' if drive and drive.token() else ' (ما فيه تصريح Drive لحفظها)')
+        if report: say('setup', text)
+        else: how.write_text(text, encoding='utf-8')
         if drive:
             try:
                 added, removed = drive.lib_changes(before)
-                threading.Thread(target=drive.save_libs, args=(name, added, removed, str(SETUP_DIR/'pip.lock')), daemon=True, name='madar-libs-save').start()
+                threading.Thread(target=drive.save_libs, args=(name, added, removed, str(SETUP_DIR/'pip.lock')), daemon=False, name='madar-libs-save').start()
             except Exception:
                 pass
     return True
