@@ -155,7 +155,7 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
   const section=document.createElement('section');section.className='tiktok-share';const file=new File([blob],name,{type:'video/mp4'});
   let canShare=false;try{canShare=!!navigator.canShare?.({files:[file]});}catch{}
   const button=document.createElement('button');button.type='button';button.className='button full';button.textContent=canShare?'شارك في تيك توك':'افتح رفع تيك توك';
-  const hint=document.createElement('p');hint.className='micro';hint.textContent=canShare?'تطلع لك قائمة المشاركة: اختر تيك توك.':'احفظ الملف أول، بعدين ارفعه من الصفحة اللي بتنفتح.';
+  const hint=document.createElement('p');hint.className='micro';hint.textContent=canShare?'من قائمة المشاركة اختر «تيك توك» نفسه، مو «استديو تيك توك» (جودته أقل).':'احفظ الملف أول، بعدين ارفعه من الصفحة اللي بتنفتح.';
   button.onclick=async()=>{if(!canShare){window.open('https://www.tiktok.com/tiktokstudio/upload','_blank','noopener');return;}try{await navigator.share({files:[file]});}catch(error){if(error?.name!=='AbortError')hint.textContent='ما انفتحت المشاركة؛ احفظ الملف وارفعه من تطبيق تيك توك.';}};
   const tips=document.createElement('details');tips.open=true;const summary=document.createElement('summary');summary.textContent='عشان تطلع بأعلى جودة';const list=document.createElement('ul');
   for(const text of ['في شاشة النشر: «خيارات إضافية» ← فعّل «السماح بالتحميل بجودة عالية».','من إعدادات تيك توك: اقفل «توفير البيانات».','ارفع على واي فاي أو نت قوي.','لا تضيف فلاتر أو تعديلات داخل تيك توك؛ الملف جاهز.','فايرفوكس نفسه ما يرفع أحسن؛ اللي ينتشر إضافات تعدّل الرفع وتاخذ صلاحية على حسابك، فما ننصح فيها.']){const li=document.createElement('li');li.textContent=text;list.append(li);}
