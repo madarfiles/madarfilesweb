@@ -2,6 +2,7 @@ import importlib.util,json,shutil,subprocess,sys,tempfile,types,unittest
 from pathlib import Path
 ROOT=Path(__file__).parents[1]
 s=importlib.util.spec_from_file_location('madar_tiktok_test',ROOT/'colab'/'madar_tiktok.py');m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+s=importlib.util.spec_from_file_location('madar_upload_method_test',ROOT/'colab'/'madar_upload_method.py');up=importlib.util.module_from_spec(s);s.loader.exec_module(up)
 
 class TikTok(unittest.TestCase):
  def test_size_and_rate_follow_the_clip(self):
@@ -32,7 +33,7 @@ class EditorsMethod(unittest.TestCase):
   with tempfile.TemporaryDirectory() as d:
    d=Path(d);src=d/'a.mp4';dst=d/'b.mp4'
    subprocess.run(['ffmpeg','-loglevel','error','-y','-f','lavfi','-i','testsrc2=s=320x568:r=30:d=1','-f','lavfi','-i','sine=d=1','-c:v','libx264','-bf','2','-c:a','aac','-shortest','-movflags','+faststart',str(src)],check=True)
-   self.assertEqual(m.ghost_frames(src,dst,10),300)
+   self.assertEqual(up.transform(str(src),str(dst))['declared_frames'],300)
    probe=lambda f:json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v','-show_entries','stream=nb_frames,duration','-of','json',str(f)]))['streams'][0]
    self.assertEqual(probe(dst)['nb_frames'],'300');self.assertAlmostEqual(float(probe(dst)['duration']),float(probe(src)['duration']),delta=0.05)
    frames=lambda f:[l.split(',')[-1] for l in subprocess.run(['ffmpeg','-v','quiet','-i',str(f),'-map','0:v','-f','framemd5','-'],capture_output=True,text=True).stdout.splitlines() if l and l[0]!='#']
@@ -41,4 +42,4 @@ class EditorsMethod(unittest.TestCase):
    self.assertEqual(audio(dst),audio(src))
  def test_unsupported_layout_is_refused(self):
   with tempfile.TemporaryDirectory() as d:
-   p=Path(d)/'x.mp4';p.write_bytes(b'\x00\x00\x00\x08free');self.assertRaises(ValueError,m.ghost_frames,p,Path(d)/'y.mp4')
+   p=Path(d)/'x.mp4';p.write_bytes(b'\x00\x00\x00\x08free');self.assertRaises(ValueError,up.transform,str(p),str(Path(d)/'y.mp4'))
