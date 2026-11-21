@@ -174,7 +174,7 @@ def make_tiktok(source, cfg, root, report):
     from madar_colab_runtime import nvenc_ready
     root = Path(root)
     info = probe(source)
-    editors = cfg.get('method') == 'editors'
+    editors = cfg.get('method') in ('editors', 'editors4k')
     try:
         gpu_ok = bool(nvenc_ready())
     except Exception:
@@ -184,7 +184,9 @@ def make_tiktok(source, cfg, root, report):
     # 4K only for normal clips on a GPU: tone-mapping HDR at 4K on Colab's two CPU cores took over
     # seven minutes for a 36-second clip, so HDR (and anything without a GPU) stops at 1440.
     hdr = info['transfer'] in HDR_TRANSFERS
-    short = (2160 if gpu_ok and not hdr else 1440) if editors else 1080
+    # TikTok's phone app refuses anything above 1080p ("غير مدعومة الآن"), so the app route stays at
+    # 1080; above it only for upload from a computer (tiktok.com/tiktokstudio).
+    short = (2160 if gpu_ok and not hdr else 1440) if cfg.get('method') == 'editors4k' else 1080
     W, H = target_size(info['w'], info['h'], short); rate = output_rate(info['fps'])
     steps = []
     if min(info['w'], info['h']) > min(W, H):
@@ -230,7 +232,7 @@ def make_tiktok(source, cfg, root, report):
             report('processing', f"طريقة المحررين: الملف يعلن {stats['declared_frames']} إطار (الصورة نفسها ما تغيرت)")
             try:
                 extra = json.loads((root/'preview.json').read_text()) if (root/'preview.json').exists() else {}
-                extra['method'] = 'editors'; (root/'preview.json').write_text(json.dumps(extra))
+                extra['method'] = cfg.get('method'); (root/'preview.json').write_text(json.dumps(extra))
             except Exception:
                 pass
         except Exception as exc:
