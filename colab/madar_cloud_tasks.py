@@ -9,7 +9,7 @@ DEPS={
  'word':['pdf2docx==0.5.13','pypdfium2==5.15.2'],
  'asr':['ctranslate2==4.6.0','onnxruntime-gpu[cuda,cudnn]==1.23.2','av==16.0.1','tokenizers==0.21.4','huggingface-hub==0.36.0','nvidia-cublas-cu12>=12,<13','nvidia-cudnn-cu12>=9,<10'],
  'translate':['transformers==4.51.3','sentencepiece==0.2.3','accelerate==1.6.0'],
- 'burn':[], 'convert':[], 'resize':[], 'tiktok':[],
+ 'burn':[], 'convert':[], 'resize':[],
  'imagegen':['diffusers==0.35.1','transformers==4.51.3','accelerate==1.6.0','sentencepiece==0.2.3'],
  'videogen':['diffusers==0.35.1','transformers==4.51.3','accelerate==1.6.0','sentencepiece==0.2.3','ftfy==6.3.1','imageio[ffmpeg]==2.37.0']}
 # Install the full ASR/translation stack before importing any ML package.
@@ -413,9 +413,6 @@ def process(task, source, cfg, root, report):
    if key:names[key]=value
   translated='\n'.join(translate_lines(text.splitlines(),cfg['source'],cfg['target'],report,names))
   out=root/('translated.'+cfg['ext']);original=root/('original.'+cfg['ext']);out.write_text(translated,encoding='utf-8');original.write_text(text,encoding='utf-8');return zip_outputs(root,[original,out])
- if task=='tiktok':
-  from madar_tiktok import make_tiktok
-  return make_tiktok(source,cfg,root,report)
  if task in {'burn','convert','resize'}:
   from madar_colab_runtime import video_encoder, nvenc_ready
   import madar_colab_runtime as media_runtime
