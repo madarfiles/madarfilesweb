@@ -20,15 +20,20 @@ class FakeDrive:
   def get(url,params=None,headers=None,stream=False,timeout=None):
    drive.calls.append(('GET',url));assert headers['Authorization']=='Bearer tok'
    if params and params.get('alt')=='media':return Resp(200,body=drive.files[url.rsplit('/',1)[1]]['body'])
-   name=params['q'].split("'")[1];return Resp(200,{'files':[{'id':i,'size':str(len(f['body'])),'appProperties':f['props']} for i,f in drive.files.items() if f['name']==name]})
+   name=params['q'].split("'")[1];match=(lambda n:name in n) if ' contains ' in params['q'] else (lambda n:n==name)
+   return Resp(200,{'files':[{'id':i,'name':f['name'],'size':str(len(f['body'])),'createdTime':'2026-11-%02d'%(1+int(i[1:])%28),'appProperties':f['props']} for i,f in drive.files.items() if match(f['name'])]})
   def post(url,params=None,json=None,headers=None,timeout=None):
    drive.calls.append(('POST',url));key='u%d'%len(drive.uploads);drive.uploads[key]=json;return Resp(200,headers={'Location':'https://www.googleapis.com/upload/drive/v3/files?upload_id='+key})
   def put(url,data=None,headers=None,timeout=None):
    key=url.split('=')[-1];meta=drive.uploads[key];drive.files['f%d'%len(drive.files)]={'name':meta['name'],'props':meta.get('appProperties',{}),'body':data.read()};return Resp(200,{})
   def delete(url,headers=None,timeout=None):drive.calls.append(('DELETE',url));drive.files.pop(url.rsplit('/',1)[1],None);return Resp(204)
+  def patch(url,params=None,json=None,headers=None,timeout=None):
+   drive.calls.append(('PATCH',url));f=drive.files.get(url.rsplit('/',1)[1])
+   if f is not None:f['props']={**f['props'],**(json or {}).get('appProperties',{})}
+   return Resp(200,{})
   def put2(url,data=None,headers=None,timeout=None):
    r=put(url,data,headers,timeout);r._data={'id':list(drive.files)[-1]};return r
-  return types.SimpleNamespace(get=get,post=post,put=put2,delete=delete,RequestException=Exception)
+  return types.SimpleNamespace(get=get,post=post,put=put2,delete=delete,patch=patch,RequestException=Exception)
 
 class DriveCache(unittest.TestCase):
  def setUp(self):
@@ -130,3 +135,28 @@ class LibraryCache(unittest.TestCase):
    self.assertTrue(self.m.save_libs('lib-x-1-img',added,removed))
    self.m._package_dirs=lambda:[Path(self.tmp.name)/'other'/'site-packages']
    self.assertIsNone(self.m.restore_libs('lib-x-1-img'))
+
+
+class DriveCap(unittest.TestCase):
+ """Madar never keeps more than the cap in the visitor's Drive: least recently used goes first."""
+ def setUp(self):
+  self.tmp=tempfile.TemporaryDirectory();base=Path(self.tmp.name)
+  self.m=load('drive_cap_test','madar_drive_cache.py');self.m.BASE=base;self.m.KEY=base/'google.json';self.m.CACHE=base/'models';self.m.LOCKS=base/'locks'
+  self.drive=FakeDrive();self.req=self.drive.module();self.auth={'Authorization':'Bearer tok'}
+ def tearDown(self):self.tmp.cleanup()
+ def add(self,id,name,size,used):self.drive.files[id]={'name':name,'props':{'used':str(used)},'body':b'x'*size}
+ def test_evicts_least_recently_used_until_it_fits(self):
+  self.add('f1','madar-1-old',40,100);self.add('f2','madar-1-mid',30,200);self.add('f3','madar-1-new',20,300);self.add('f4','madar-io-in-x',90,1)
+  self.assertTrue(self.m.make_room(25,self.auth,self.req,cap=80))
+  self.assertNotIn('f1',self.drive.files);self.assertIn('f2',self.drive.files);self.assertIn('f3',self.drive.files);self.assertIn('f4',self.drive.files)
+ def test_file_bigger_than_cap_is_not_stored(self):
+  self.add('f1','madar-1-a',10,1)
+  self.assertFalse(self.m.make_room(100,self.auth,self.req,cap=80));self.assertIn('f1',self.drive.files)
+ def test_restore_marks_use(self):
+  self.add('f1','madar-1-a',10,1);self.m._touch('f1',self.auth,self.req)
+  self.assertGreater(int(self.drive.files['f1']['props']['used']),1000)
+ def test_upload_respects_cap(self):
+  self.m.CAP=50;self.add('f1','madar-1-a',40,1)
+  p=Path(self.tmp.name)/'model.bin';p.write_bytes(b'y'*30)
+  self.assertTrue(self.m._upload('b',p,self.auth,self.req))
+  self.assertNotIn('f1',self.drive.files);self.assertTrue(any(f['name']=='madar-1-b' and 'used' in f['props'] for f in self.drive.files.values()))

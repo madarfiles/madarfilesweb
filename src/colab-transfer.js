@@ -58,3 +58,10 @@ export async function driveUpload(file,token,{name,signal,onProgress=()=>{}}={})
 }
 export function driveFetchPart(fileId,token,size){return async(index,signal)=>{const a=index*PART,b=Math.min(size,a+PART)-1;const r=await fetch(DRIVE_FILES+'/'+encodeURIComponent(fileId)+'?alt=media',{headers:{Authorization:'Bearer '+token,Range:`bytes=${a}-${b}`},signal});if(!(r.status===206||r.status===200&&size<=PART)){const e=driveError(r.status,'PART');await r.body?.cancel?.();throw e;}return new Uint8Array(await r.arrayBuffer());};}
 export function driveDelete(fileId,token){return fetch(DRIVE_FILES+'/'+encodeURIComponent(fileId),{method:'DELETE',headers:{Authorization:'Bearer '+token}}).catch(()=>{});}
+
+// Madar's speed-up files (libraries and models) in the visitor's hidden Drive folder: their total,
+// and removal on request. The visitor's own uploads/results in transit (madar-io-*) are left alone.
+export async function driveCacheList(token){let files=[],page='';do{const u=new URL(DRIVE_FILES);u.search=new URLSearchParams({spaces:'appDataFolder',fields:'nextPageToken,files(id,name,size)',pageSize:'1000',...(page?{pageToken:page}:{})}).toString();const r=await fetch(u,{headers:{Authorization:'Bearer '+token}});if(!r.ok)throw driveError(r.status,'LIST');const d=await r.json();files=files.concat((d.files||[]).filter(f=>/^madar-/.test(f.name||'')&&!/^madar-io-/.test(f.name||'')));page=d.nextPageToken||'';}while(page);return{files,total:files.reduce((n,f)=>n+(Number(f.size)||0),0)};}
+export async function driveCacheClear(token){const {files}=await driveCacheList(token);let removed=0;for(const f of files){const r=await fetch(DRIVE_FILES+'/'+encodeURIComponent(f.id),{method:'DELETE',headers:{Authorization:'Bearer '+token}}).catch(()=>null);if(r&&(r.ok||r.status===404))removed++;}return removed;}
+export const DRIVE_CACHE_CAP=6*1024**3;
+export function sizeLabel(bytes){return bytes>=1024**3?(bytes/1024**3).toFixed(1)+' GB':Math.max(1,Math.round(bytes/1048576))+' MB';}

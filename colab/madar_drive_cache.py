@@ -17,6 +17,9 @@ UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files'
 CACHE = Path('/content/madar_models')
 LOCKS = BASE/'drive-locks'
 BLOCK = 8 << 20
+# Everything Madar keeps to speed tools up stays under this, so a free 15 GB Drive keeps its room.
+# When a new file would pass it, the files used longest ago are removed first.
+CAP = 6 << 30
 
 
 def _hub():
@@ -82,6 +85,58 @@ def _find(name, auth, requests):
     return None
 
 
+def _touch(file_id, auth, requests):
+    """Marks a cached file as just used (eviction removes the least recently used first)."""
+    try:
+        requests.patch(f'{FILES}/{file_id}', headers=auth, timeout=(10, 20), params={'fields': 'id'},
+                       json={'appProperties': {'used': str(int(time.time()))}})
+    except Exception:
+        pass
+
+
+def _cached(auth, requests):
+    """Madar's speed-up files in the hidden folder (not the visitor's own uploads/results)."""
+    files, page = [], None
+    while True:
+        params = {'spaces': 'appDataFolder', 'q': "name contains 'madar-' and trashed = false", 'pageSize': 1000,
+                  'fields': 'nextPageToken,files(id,name,size,createdTime,appProperties)'}
+        if page:
+            params['pageToken'] = page
+        r = requests.get(FILES, headers=auth, timeout=(10, 30), params=params)
+        if r.status_code != 200:
+            raise RuntimeError('DRIVE_LIST_%d' % r.status_code)
+        data = r.json()
+        files += [f for f in data.get('files', []) if f.get('name', '').startswith('madar-') and not f['name'].startswith(IO_PREFIX)]
+        page = data.get('nextPageToken')
+        if not page:
+            return files
+
+
+def _used_at(item):
+    props = item.get('appProperties') or {}
+    try:
+        return int(props.get('used') or 0)
+    except ValueError:
+        return 0
+
+
+def make_room(size, auth, requests, cap=None):
+    """Deletes the least recently used cached files until `size` more bytes fit under the cap.
+    Returns False when the file alone is bigger than the cap (it is then not stored)."""
+    cap = CAP if cap is None else cap
+    if size > cap:
+        return False
+    files = sorted(_cached(auth, requests), key=lambda f: (_used_at(f), f.get('createdTime', '')))
+    total = sum(int(f.get('size') or 0) for f in files)
+    for item in files:
+        if total + size <= cap:
+            break
+        r = requests.delete(f"{FILES}/{item['id']}", headers=auth, timeout=(10, 20))
+        if r.status_code in (200, 204, 404):
+            total -= int(item.get('size') or 0)
+    return total + size <= cap
+
+
 def restore(task, report=lambda *a, **k: None):
     """Copies every model of `task` that is missing on this machine from Drive. Returns the
     names restored. Holds a lock per model so the early preparation and the job never fetch
@@ -131,6 +186,7 @@ def restore(task, report=lambda *a, **k: None):
             else:
                 os.replace(part, path)
             (LOCKS/(name + '.from-drive')).touch()
+            _touch(file_id, auth, requests)
             done.append(name)
         except Exception:
             pass
@@ -153,8 +209,10 @@ def _upload(name, path, auth, requests):
         with open(packed, 'rb') as f:
             for block in iter(lambda: f.read(BLOCK), b''):
                 h.update(block); size += len(block)
+        if not make_room(size, auth, requests):
+            return False
         meta = {'name': f'madar-{VERSION}-{name}', 'parents': ['appDataFolder'],
-                'appProperties': {'sha256': h.hexdigest(), 'size': str(size), 'kind': kind}}
+                'appProperties': {'sha256': h.hexdigest(), 'size': str(size), 'kind': kind, 'used': str(int(time.time()))}}
         r = requests.post(UPLOAD, params={'uploadType': 'resumable'}, json=meta, timeout=(10, 30),
                           headers={**auth, 'X-Upload-Content-Type': 'application/octet-stream', 'X-Upload-Content-Length': str(size)})
         location = r.headers.get('Location', '')
@@ -422,6 +480,7 @@ def restore_libs(name, report=None):
         if not found:
             return None
         file_id, digest, size, _ = found
+        _touch(file_id, auth, requests)
         if report:
             report('setup', 'نجيب مكتبات الأداة الجاهزة من Google Drive…')
         h = hashlib.sha256(); got = 0

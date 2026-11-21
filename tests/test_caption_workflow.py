@@ -17,8 +17,8 @@ class CaptionWorkflow(unittest.TestCase):
  def test_translation_followup_preserves_timing_and_preview(self):
   with tempfile.TemporaryDirectory() as d:
    root=Path(d);srt='1\n00:00:00,000 --> 00:00:01,000\nHello';cfg=dict(operation='translate',subtitles=srt,source='en',target='ar',names='',ext='mp4')
-   with patch.object(m,'install'),patch.object(m,'translate_lines',side_effect=lambda lines,*a:['شموخ' if x=='Hello' else x for x in lines]):out=m.caption_workflow(root/'source.mp4',cfg,root,lambda *a:None)
-   with zipfile.ZipFile(out) as z:self.assertIn('00:00:00,000 --> 00:00:01,000',z.read('translated.srt').decode());self.assertIn('شموخ',z.read('translated.srt').decode())
+   with patch.object(m,'install'),patch.object(m,'translate_lines',side_effect=lambda lines,*a:['عبد المجيد' if x=='Hello' else x for x in lines]):out=m.caption_workflow(root/'source.mp4',cfg,root,lambda *a:None)
+   with zipfile.ZipFile(out) as z:self.assertIn('00:00:00,000 --> 00:00:01,000',z.read('translated.srt').decode());self.assertIn('عبد المجيد',z.read('translated.srt').decode())
    preview=json.loads((root/'preview.json').read_text());self.assertEqual(preview['language'],'ar');self.assertFalse(preview['truncated'])
  @unittest.skipUnless(shutil.which('ffmpeg'),'FFmpeg unavailable')
  def test_real_ffmpeg_burn_accepts_all_positions_and_colors(self):
@@ -26,7 +26,7 @@ class CaptionWorkflow(unittest.TestCase):
    root=Path(d);source=root/'source.mp4';subprocess.run(['ffmpeg','-v','error','-f','lavfi','-i','color=c=gray:s=320x240:d=0.3','-c:v','libx264','-pix_fmt','yuv420p',str(source)],check=True)
    runtime=types.SimpleNamespace(video_encoder=lambda:['-c:v','libx264','-preset','ultrafast'],nvenc_ready=lambda:False)
    for pos,color in [('top','ivory'),('middle','white'),('bottom','gold')]:
-    cfg=dict(subtitles='1\n00:00:00,000 --> 00:00:01,000\nشموخ',position=pos,fontColor=color,fontSize='24')
+    cfg=dict(subtitles='1\n00:00:00,000 --> 00:00:01,000\nعبد المجيد',position=pos,fontColor=color,fontSize='24')
     with patch.object(m,'install'),patch.dict(sys.modules,{'madar_colab_runtime':runtime}):out=m.process('burn',source,cfg,root,lambda *a:None)
     probe=json.loads(subprocess.check_output(['ffprobe','-v','error','-show_streams','-of','json',str(out)]));self.assertEqual(probe['streams'][0]['codec_name'],'h264');self.assertGreater(out.stat().st_size,100)
  def test_retry_source_is_bound_to_original_tool(self):

@@ -31,8 +31,8 @@ class RuntimeRecovery(unittest.TestCase):
     def transcribe(self,*args,**kw):
      calls.append(kw['vad_filter'])
      if kw['vad_filter']:raise RuntimeError('onnxruntime silero vad unavailable')
-     return iter([types.SimpleNamespace(start=0,end=1,text='شموخ')]),types.SimpleNamespace(language='ar')
+     return iter([types.SimpleNamespace(start=0,end=1,text='عبد المجيد')]),types.SimpleNamespace(language='ar')
    model=Model();ort=types.SimpleNamespace();ctranslate2=types.SimpleNamespace(get_supported_compute_types=lambda device:{'float16'})
    with patch.object(m,'install'),patch.object(m,'cuda'),patch.object(m,'preload_cuda'),patch.object(m,'cached_model',return_value=model),patch.dict(sys.modules,{'faster_whisper':types.SimpleNamespace(WhisperModel=object),'onnxruntime':ort,'ctranslate2':ctranslate2}):
     out=m.process('asr',Path(d)/'source.mkv',{'_basic_asr':True,'language':'ar'},Path(d),lambda *a:None)
-   self.assertEqual(calls,[True,False]);self.assertGreater(out.stat().st_size,0);self.assertIn('شموخ',(Path(d)/'original.srt').read_text())
+   self.assertEqual(calls,[True,False]);self.assertGreater(out.stat().st_size,0);self.assertIn('عبد المجيد',(Path(d)/'original.srt').read_text())
