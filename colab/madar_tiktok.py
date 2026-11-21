@@ -65,7 +65,11 @@ def target_size(w, h, short=1080):
     return max(2, round(w*s/2)*2), max(2, round(h*s/2)*2)
 
 
-def video_filter(info, W, H, colors='natural'):
+DENOISE = {'light': 'hqdn3d=2:1.5:6:4.5',
+           'strong': 'atadenoise=0a=0.04:0b=0.08:1a=0.04:1b=0.08:2a=0.04:2b=0.08:s=9,hqdn3d=3:2:8:6'}
+
+
+def video_filter(info, W, H, colors='natural', denoise='off'):
     grow = min(info['w'], info['h']) < 1080
     size = f'scale={W}:{H}:flags=lanczos'
     if info['transfer'] in HDR_TRANSFERS:
@@ -78,6 +82,10 @@ def video_filter(info, W, H, colors='natural'):
         chain = f'{size},format=yuv420p'
         if info['bits'] > 8:
             chain = f'{size},zscale=d=error_diffusion,format=yuv420p'
+    if denoise in DENOISE:
+        # Night and indoor phone clips carry grain that TikTok's encoder turns into blocks; cleaning
+        # it (in time, across frames, and lightly in space) keeps detail and compresses cleaner.
+        chain += ',' + DENOISE[denoise]
     if grow:
         chain += ',unsharp=5:5:0.5:5:5:0'
     if colors == 'vivid':
@@ -109,6 +117,33 @@ def describe(info):
     if info['dovi']:
         light += ' + Dolby Vision'
     return f"{info['w']}×{info['h']} · {round(info['fps'])} إطار · {light}"
+
+
+def _ffmpeg_progress(args, duration, report, timeout=5400):
+    """ffmpeg with a live percentage and time left in the page (long clips took minutes in silence)."""
+    import threading
+    began = time.monotonic(); last = [0.0]
+    proc = subprocess.Popen(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', '-progress', 'pipe:1', '-nostats', *map(str, args)],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    err = []
+    threading.Thread(target=lambda: err.append(proc.stderr.read()), daemon=True).start()
+    for line in proc.stdout:
+        if not line.startswith('out_time_us=') or duration <= 0:
+            continue
+        try:
+            done = max(0.0, int(line.split('=', 1)[1]) / 1e6)
+        except ValueError:
+            continue
+        now = time.monotonic()
+        if now - last[0] < 3:
+            continue
+        last[0] = now; part = min(0.99, done/duration); spent = now - began
+        left = spent/part - spent if part > 0.02 else 0
+        report('processing', f'المعالجة {round(part*100)}٪' + (f' · باقي تقريبًا {round(left)} ث' if left else ''))
+        if now - began > timeout:
+            proc.kill()
+    if proc.wait() != 0:
+        raise subprocess.CalledProcessError(proc.returncode, 'ffmpeg', stderr=''.join(err))
 
 
 def _ffmpeg(args, timeout=5400):
@@ -146,7 +181,10 @@ def make_tiktok(source, cfg, root, report):
         gpu_ok = False
     # The editors' method aims at TikTok keeping the file as uploaded, so the clip keeps up to 4K
     # (1440 without a GPU: 4K on two CPU cores would take many minutes).
-    short = (2160 if gpu_ok else 1440) if editors else 1080
+    # 4K only for normal clips on a GPU: tone-mapping HDR at 4K on Colab's two CPU cores took over
+    # seven minutes for a 36-second clip, so HDR (and anything without a GPU) stops at 1440.
+    hdr = info['transfer'] in HDR_TRANSFERS
+    short = (2160 if gpu_ok and not hdr else 1440) if editors else 1080
     W, H = target_size(info['w'], info['h'], short); rate = output_rate(info['fps'])
     steps = []
     if min(info['w'], info['h']) > min(W, H):
@@ -157,15 +195,17 @@ def make_tiktok(source, cfg, root, report):
         steps.append('تكبير لـ1080 مع تحسين الحدة')
     if info['transfer'] in HDR_TRANSFERS:
         steps.append('تحويل HDR لألوان عادية مضبوطة')
+    if cfg.get('denoise', 'light') in DENOISE:
+        steps.append('إزالة التشويش' + (' القوية' if cfg.get('denoise') == 'strong' else ''))
     report('processing', f"المقطع: {describe(info)} → {W}×{H} · {round(rate_value(rate))} إطار" + (' · ' + '، '.join(steps) if steps else ''))
-    vf = video_filter(info, W, H, cfg.get('colors', 'natural'))
+    vf = video_filter(info, W, H, cfg.get('colors', 'natural'), cfg.get('denoise', 'light'))
     out = root/'result.mp4'
     began = time.monotonic()
     def encode(gpu):
         args = (['-hwaccel', 'cuda'] if gpu else []) + ['-i', source, '-map', '0:v:0', '-map', '0:a:0?', '-vf', vf, '-fps_mode', 'cfr', '-r', rate,
                 *encoder_args(rate, gpu, W, H), '-c:a', 'aac', '-b:a', '256k', '-ar', '48000', '-ac', '2', '-sn', '-dn',
                 '-map_metadata', '-1', '-map_chapters', '-1', '-movflags', '+faststart', '-tag:v', 'avc1', out]
-        _ffmpeg(args)
+        _ffmpeg_progress(args, info['duration'], report)
     how = 'GPU'
     try:
         if not gpu_ok:

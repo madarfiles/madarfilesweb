@@ -43,3 +43,8 @@ class EditorsMethod(unittest.TestCase):
  def test_unsupported_layout_is_refused(self):
   with tempfile.TemporaryDirectory() as d:
    p=Path(d)/'x.mp4';p.write_bytes(b'\x00\x00\x00\x08free');self.assertRaises(ValueError,up.transform,str(p),str(Path(d)/'y.mp4'))
+
+class Denoise(unittest.TestCase):
+ def test_levels(self):
+  i={'w':1080,'h':1920,'bits':8,'transfer':'bt709'}
+  self.assertIn('hqdn3d',m.video_filter(i,1080,1920,'natural','light'));self.assertIn('atadenoise',m.video_filter(i,1080,1920,'natural','strong'));self.assertNotIn('hqdn3d',m.video_filter(i,1080,1920,'natural','off'))
