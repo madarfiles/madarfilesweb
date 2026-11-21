@@ -168,4 +168,158 @@ def make_tiktok(source, cfg, root, report):
         preview(source, out, info, W, H, root)
     except Exception:
         pass
+    if cfg.get('method') == 'editors':
+        patched = root/'result-editors.mp4'
+        try:
+            frames = ghost_frames(out, patched)
+            patched.replace(out)
+            report('processing', f'طريقة المحررين: الملف يعلن {frames} إطار (الصورة نفسها ما تغيرت)')
+            try:
+                extra = json.loads((root/'preview.json').read_text()) if (root/'preview.json').exists() else {}
+                extra['method'] = 'editors'; (root/'preview.json').write_text(json.dumps(extra))
+            except Exception:
+                pass
+        except Exception as exc:
+            patched.unlink(missing_ok=True)
+            report('processing', f'تعذرت طريقة المحررين ({type(exc).__name__})؛ الملف بالطريقة العادية')
     return out
+
+
+# ---- «طريقة المحررين» (experimental) ---------------------------------------------------------
+# Editors' upload tools (TikTok Enhancer, TikQuick, the open-source tiktok-quality) change only the
+# MP4 index: they add "ghost" samples to the video track so the file declares many more frames,
+# all pointing at one 8-byte H.264 filler NAL (decoders skip it). Not one pixel changes and the
+# edit list keeps playback length. TikTok has not documented its rules; whether this still gives
+# a higher-quality version is for the visitor's own test to show.
+import struct
+
+FILLER = struct.pack('>I', 4) + bytes([0x0C, 0xFF, 0xFF, 0x80])  # length 4 + filler NAL (type 12)
+PARENTS = {b'moov', b'trak', b'mdia', b'minf', b'stbl', b'edts', b'udta'}
+
+
+def _parse(data, start=0, end=None):
+    end = len(data) if end is None else end; i = start; out = []
+    while i + 8 <= end:
+        size, kind = struct.unpack('>I4s', data[i:i+8]); head = 8
+        if size == 1:
+            size = struct.unpack('>Q', data[i+8:i+16])[0]; head = 16
+        elif size == 0:
+            size = end - i
+        if size < head or i + size > end:
+            raise ValueError('MP4 box out of range')
+        body = data[i+head:i+size]
+        out.append([kind, _parse(body) if kind in PARENTS else body])
+        i += size
+    return out
+
+
+def _build(boxes):
+    out = bytearray()
+    for kind, body in boxes:
+        raw = _build(body) if isinstance(body, list) else body
+        out += struct.pack('>I4s', 8 + len(raw), kind) + raw
+    return bytes(out)
+
+
+def _child(boxes, kind):
+    return next((b for b in boxes if b[0] == kind), None)
+
+
+def _full(body):
+    return body[:4], body[4:]
+
+
+def ghost_frames(src, dst, factor=10):
+    """Writes `dst` with (factor-1)×frames ghost samples added to the video track. Returns the
+    declared frame count, or raises ValueError when the file isn't the simple layout this needs
+    (ftyp, moov, …, mdat last: what our own encoder writes)."""
+    src, dst = Path(src), Path(dst)
+    data = src.read_bytes()
+    top = []; i = 0
+    while i + 8 <= len(data):
+        size, kind = struct.unpack('>I4s', data[i:i+8]); head = 8
+        if size == 1:
+            size = struct.unpack('>Q', data[i+8:i+16])[0]; head = 16
+        elif size == 0:
+            size = len(data) - i
+        top.append((kind, i, size, head)); i += size
+    kinds = [t[0] for t in top]
+    if b'moov' not in kinds or kinds[-1] != b'mdat' or kinds.index(b'moov') > kinds.index(b'mdat'):
+        raise ValueError('layout')
+    mo = top[kinds.index(b'moov')]
+    moov = _parse(data, mo[1]+mo[3], mo[1]+mo[2])
+    mvhd = _child(moov, b'mvhd'); movie_scale = struct.unpack('>I', mvhd[1][12:16] if mvhd[1][0] == 0 else mvhd[1][20:24])[0]
+    video = None
+    for trak in (b for b in moov if b[0] == b'trak'):
+        mdia = _child(trak[1], b'mdia')
+        if _child(mdia[1], b'hdlr')[1][8:12] == b'vide':
+            video = trak
+    if not video:
+        raise ValueError('no video')
+    mdia = _child(video[1], b'mdia'); stbl = _child(_child(mdia[1], b'minf')[1], b'stbl')[1]
+    stsd = _child(stbl, b'stsd')[1]
+    if b'avcC' not in stsd or (stsd[stsd.index(b'avcC')+8] & 3) != 3:
+        raise ValueError('codec')
+    stsz = _child(stbl, b'stsz'); fh, rest = _full(stsz[1]); fixed, count = struct.unpack('>II', rest[:8])
+    if fixed:
+        raise ValueError('fixed sizes')
+    ghosts = count*(factor-1)
+    stsz[1] = fh + struct.pack('>II', 0, count+ghosts) + rest[8:8+4*count] + struct.pack('>I', 8)*ghosts
+    stts = _child(stbl, b'stts'); fh, rest = _full(stts[1]); n = struct.unpack('>I', rest[:4])[0]
+    stts[1] = fh + struct.pack('>I', n+1) + rest[4:4+8*n] + struct.pack('>II', ghosts, 1)
+    ctts = _child(stbl, b'ctts')
+    if ctts:
+        fh, rest = _full(ctts[1]); n = struct.unpack('>I', rest[:4])[0]
+        ctts[1] = fh + struct.pack('>I', n+1) + rest[4:4+8*n] + struct.pack('>II', ghosts, 0)
+    sdtp = _child(stbl, b'sdtp')
+    if sdtp:
+        sdtp[1] = sdtp[1] + bytes(ghosts)
+    offsets = _child(stbl, b'stco') or _child(stbl, b'co64'); wide = offsets[0] == b'co64'
+    fh, rest = _full(offsets[1]); chunks = struct.unpack('>I', rest[:4])[0]
+    stsc = _child(stbl, b'stsc'); sfh, srest = _full(stsc[1]); n = struct.unpack('>I', srest[:4])[0]
+    sdi = struct.unpack('>I', srest[4+12*(n-1)+8:4+12*n])[0] if n else 1
+    stsc[1] = sfh + struct.pack('>I', n+1) + srest[4:4+12*n] + struct.pack('>III', chunks+1, 1, sdi)
+    # Media length grows by `ghosts` ticks (a fraction of a second); the edit list keeps what plays.
+    mdhd = _child(mdia[1], b'mdhd'); body = bytearray(mdhd[1])
+    if body[0] == 0:
+        struct.pack_into('>I', body, 16, struct.unpack('>I', body[16:20])[0] + ghosts)
+    else:
+        struct.pack_into('>Q', body, 24, struct.unpack('>Q', body[24:32])[0] + ghosts)
+    mdhd[1] = bytes(body)
+    # Offsets: measure the new moov with placeholder offsets, then fill in the real ones.
+    def fill(shift, ghost_at):
+        # Each call starts from the offsets as they are in the file (the first call shifts by 0).
+        for trak in (b for b in moov if b[0] == b'trak'):
+            tb = _child(_child(_child(_child(trak[1], b'mdia')[1], b'minf')[1], b'stbl')[1], b'stco') or \
+                 _child(_child(_child(_child(trak[1], b'mdia')[1], b'minf')[1], b'stbl')[1], b'co64')
+            w = tb[0] == b'co64'; h, r = _full(tb[1])
+            k = struct.unpack('>I', r[:4])[0]; fmt = 'Q' if w else 'I'; size = 8 if w else 4
+            base = list(struct.unpack(f'>{k}{fmt}', r[4:4+size*k]))
+            original = base[:chunks] if trak is video else base
+            new = [o + shift for o in original] + ([ghost_at]*ghosts if trak is video else [])
+            if not w and max(new) > 0xffffffff:
+                raise ValueError('offsets')
+            tb[1] = h + struct.pack('>I', len(new)) + struct.pack(f'>{len(new)}{fmt}', *new)
+    fill(0, 0)
+    new_moov = _build(moov); shift = (8 + len(new_moov)) - mo[2]
+    md = top[-1]; ghost_at = md[1] + md[2] + shift
+    fill(shift, ghost_at)
+    new_moov = _build(moov)
+    if 8 + len(new_moov) - mo[2] != shift:
+        raise ValueError('size')
+    with open(dst, 'wb') as out:
+        for kind, start, size, head in top:
+            if kind == b'moov':
+                out.write(struct.pack('>I4s', 8 + len(new_moov), b'moov')); out.write(new_moov)
+            elif kind == b'mdat':
+                payload = size - head + len(FILLER)
+                if head == 16:
+                    out.write(struct.pack('>I4sQ', 1, b'mdat', payload + 16))
+                elif payload + 8 <= 0xffffffff:
+                    out.write(struct.pack('>I4s', payload + 8, b'mdat'))
+                else:
+                    raise ValueError('size')
+                out.write(data[start+head:start+size]); out.write(FILLER)
+            else:
+                out.write(data[start:start+size])
+    return count + ghosts

@@ -59,6 +59,19 @@ def download_error(exc):
  return 'تعذر تنزيل هذا المقطع؛ الجلسة محفوظة ويمكن تجربة رابط آخر · DOWNLOAD_FAILED'
 
 
+def renditions(info):
+    """The video versions the site offers for this clip (best first), e.g. '1080×1920 h265 7.5Mbps'.
+    Shown in the support log so the visitor sees exactly what the platform serves to everyone."""
+    seen=[]
+    for f in sorted(info.get('formats') or [],key=lambda f:((f.get('height') or 0)*(f.get('width') or 0),f.get('tbr') or 0),reverse=True):
+        if (f.get('vcodec') or 'none')=='none' or not f.get('height'):continue
+        codec=str(f.get('vcodec')).split('.')[0].replace('avc1','h264').replace('hvc1','h265').replace('hev1','h265').replace('bytevc1','h265')
+        rate=f.get('tbr') or f.get('vbr')
+        item=f"{f.get('width') or '?'}×{f.get('height')} {codec}"+(f' {rate/1000:.1f}Mbps' if rate else '')
+        if item not in seen:seen.append(item)
+    return seen[:6]
+
+
 def download_clip(config, root, report):
     url = public_url(config['url'])
     report('setup', 'تجهيز أداة التحميل في جلسة Colab')
@@ -116,6 +129,8 @@ def download_clip(config, root, report):
                     if not info or info.get('_type') in ('playlist','multi_video'):
                         raise ValueError('استخدم رابط مقطع واحد، وليس حسابًا أو قائمة تشغيل')
                     if info.get('is_live') or info.get('has_drm'): raise ValueError('البث المباشر والمحتوى المحمي غير مدعومين')
+                    offered=renditions(info)
+                    if offered:report('downloading','الجودات المتاحة عند المنصة: '+' | '.join(offered))
                     downloader.process_ie_result(info, download=True)
                 break
             except ValueError: raise

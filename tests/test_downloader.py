@@ -49,3 +49,8 @@ class DownloadRetries(unittest.TestCase):
  def test_gives_up_after_all_ways(self):
   with self.assertRaises(ValueError) as e:self.run_with(lambda n:RuntimeError('HTTP Error 403: Forbidden'),'https://www.tiktok.com/@a/video/1')
   self.assertIn('PLATFORM_NETWORK',str(e.exception))
+
+class Renditions(unittest.TestCase):
+ def test_lists_video_versions_best_first(self):
+  info={'formats':[{'vcodec':'h264','width':576,'height':1024,'tbr':620},{'vcodec':'none','acodec':'aac'},{'vcodec':'bytevc1','width':1080,'height':1920,'tbr':7500},{'vcodec':'h264','width':576,'height':1024,'tbr':620}]}
+  self.assertEqual(m.renditions(info),['1080×1920 h265 7.5Mbps','576×1024 h264 0.6Mbps'])

@@ -25,3 +25,20 @@ class TikTok(unittest.TestCase):
    video=next(x for x in v if x['codec_type']=='video')
    self.assertEqual((video['codec_name'],video['width'],video['height'],video['pix_fmt'],video.get('color_transfer')),('h264',1080,1920,'yuv420p','bt709'))
    self.assertTrue(any(x['codec_type']=='audio' for x in v));self.assertTrue((d/'preview.json').exists())
+
+class EditorsMethod(unittest.TestCase):
+ @unittest.skipUnless(shutil.which('ffmpeg'),'ffmpeg needed')
+ def test_ghost_frames_change_the_index_only(self):
+  with tempfile.TemporaryDirectory() as d:
+   d=Path(d);src=d/'a.mp4';dst=d/'b.mp4'
+   subprocess.run(['ffmpeg','-loglevel','error','-y','-f','lavfi','-i','testsrc2=s=320x568:r=30:d=1','-f','lavfi','-i','sine=d=1','-c:v','libx264','-bf','2','-c:a','aac','-shortest','-movflags','+faststart',str(src)],check=True)
+   self.assertEqual(m.ghost_frames(src,dst,10),300)
+   probe=lambda f:json.loads(subprocess.check_output(['ffprobe','-v','error','-select_streams','v','-show_entries','stream=nb_frames,duration','-of','json',str(f)]))['streams'][0]
+   self.assertEqual(probe(dst)['nb_frames'],'300');self.assertAlmostEqual(float(probe(dst)['duration']),float(probe(src)['duration']),delta=0.05)
+   frames=lambda f:[l.split(',')[-1] for l in subprocess.run(['ffmpeg','-v','quiet','-i',str(f),'-map','0:v','-f','framemd5','-'],capture_output=True,text=True).stdout.splitlines() if l and l[0]!='#']
+   self.assertEqual(frames(dst),frames(src))
+   audio=lambda f:subprocess.run(['ffmpeg','-v','quiet','-i',str(f),'-map','0:a','-f','md5','-'],capture_output=True,text=True).stdout
+   self.assertEqual(audio(dst),audio(src))
+ def test_unsupported_layout_is_refused(self):
+  with tempfile.TemporaryDirectory() as d:
+   p=Path(d)/'x.mp4';p.write_bytes(b'\x00\x00\x00\x08free');self.assertRaises(ValueError,m.ghost_frames,p,Path(d)/'y.mp4')
