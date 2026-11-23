@@ -115,3 +115,98 @@ html,body,dialog,*{scrollbar-width:none;-ms-overflow-style:none}
 .drive-usage .text-btn{font-size:9px;color:var(--orange);padding:0 4px;text-decoration:underline}
 .share-row{display:flex;gap:9px;margin-bottom:6px}.share-row .button{flex:1;min-height:40px}.recipe-btn{display:block;width:100%;text-align:right;border:1px solid #d9e0cc;background:#f4f6ee;border-radius:12px;padding:11px 13px;margin:0 0 8px}.recipe-btn b{display:block;font-size:12px;color:var(--ink)}.recipe-btn small{display:block;font-size:10px;color:#86917c;margin-top:4px}.recipe-btn:hover{border-color:#b5c0a5}
 .chain-actions .recipe-btn+h4{margin-top:14px}
+/* Cloud progress: one sentence, one bar, a countdown. */
+#colabProgress.live-progress{display:flex;flex-direction:column;gap:10px;color:var(--ink)}
+#colabProgress.live-progress b{font-size:13px;font-weight:600}
+.progress-track{display:block;height:8px;border-radius:8px;background:#dfe5d4;overflow:hidden;direction:rtl}
+.progress-track i{display:block;height:100%;width:2%;background:linear-gradient(90deg,#4f6b5d,#314d47);border-radius:8px;transition:width .9s linear}
+#colabProgress.live-progress small{font-size:11px;color:#6f7d66}
+/* Technical choices stay automatic: no support panel, no GPU or memory pickers. */
+#colabSupport,#colabDiagnostic,label:has(>#colabGPU),label:has(>#colabMemory){display:none!important}
+/* A long file name must never widen the tool window (it made the page slide sideways). */
+.picked-card{min-width:0;max-width:100%;flex:1 1 100%}
+.picked-text b,.picked-text small{max-width:100%}
+dialog{overflow-x:hidden}
+dialog *{max-width:100%}
+dialog .progress-track i{max-width:none}
+/* The wheel follows the finger all the way round; tools can be lifted and dropped on the centre. */
+.tools-orbit{touch-action:none;user-select:none;-webkit-user-select:none}
+.orbit-tool{transition:box-shadow .2s,border-color .2s,opacity .25s}
+.orbit-tool.carrying{z-index:5;box-shadow:0 18px 40px #213a2d33;border-color:#7c9572;transition:none}
+.orbit-tool.returning{transition:transform .3s cubic-bezier(.2,.8,.2,1),opacity .3s}
+.orbit-tool.landing{transition:transform .28s ease-in,opacity .28s ease-in}
+.orbit-hub{transition:transform .25s,box-shadow .25s}
+.orbit-hub.waiting{box-shadow:0 8px 35px #23483c25,0 0 0 9px #fffdfb70,0 0 0 11px #9fbf9a}
+.orbit-hub.ready{transform:translate(-50%,-50%) scale(1.1);box-shadow:0 10px 40px #23483c40,0 0 0 12px #e6efe1,0 0 0 14px #6f9674}
+.orbit-hub.landed{transform:translate(-50%,-50%) scale(1.16)}
+/* ---------- Assistant: steady layout, the box stays put and only the conversation scrolls ---------- */
+.chat-view{display:flex;flex-direction:column;height:calc(100dvh - 87px);padding-bottom:14px;overflow:hidden}
+.chat-view[hidden]{display:none!important}
+.chat-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
+.chat-head h1{font-size:22px;margin:4px 0 0;line-height:1.5}
+.chat-head .text-btn{border:1px solid var(--line);border-radius:20px;padding:8px 13px;background:#fffefa;color:#5d6d57}
+.chat-view .chat-shell{flex:1;min-height:0;display:flex;flex-direction:column;width:100%;max-width:760px;margin:12px auto 0}
+.chat-view .chat-log{flex:1;min-height:0;max-height:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;padding:6px 2px 14px;gap:12px}
+.chat-view .chat-log::-webkit-scrollbar{display:none}
+.chat-dock{flex:none;position:relative;padding-top:6px}
+.chat-view .chat-suggestions{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:0 0 9px;padding:2px 1px;gap:7px;mask-image:linear-gradient(to left,#000 88%,transparent)}
+.chat-view .chat-suggestions::-webkit-scrollbar{display:none}
+.idea{flex:none;display:inline-flex;align-items:center;gap:6px;background:#f2f1e8;border:1px solid #e3e1d6;border-radius:20px;padding:9px 13px;font-size:12px;color:#40513b;white-space:nowrap}
+.idea:active{transform:scale(.97)}
+.chat-view .chat-files{display:flex;gap:7px;overflow-x:auto;scrollbar-width:none;margin:0 0 8px;padding:1px}
+.chat-view .chat-files[hidden]{display:none}
+.attach-chip{flex:none;display:flex;align-items:center;gap:8px;max-width:240px;background:#e6efe1;border:1.5px solid #9fbf9a;border-radius:14px;padding:6px 6px 6px 10px}
+.attach-chip.from-result{background:#eef1f7;border-color:#b9c4d8}
+.attach-kind{font-size:17px;line-height:1}
+.attach-text{display:flex;flex-direction:column;min-width:0}
+.attach-text b{font-size:12px;color:#25403a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;direction:ltr;text-align:right}
+.attach-text small{font-size:10px;color:#6b7e68}
+.attach-x{flex:none;width:26px;height:26px;border-radius:50%;border:0;background:#fff9;color:#4b5d48;font-size:12px}
+.attach-menu{position:absolute;bottom:calc(100% - 4px);right:0;left:0;z-index:6;background:#fffefa;border:1px solid #dfe3d4;border-radius:18px;padding:14px;box-shadow:0 -10px 40px #182c2a26;animation:menuUp .18s ease}
+@keyframes menuUp{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
+.attach-title{margin:0 0 10px;font-size:13px;font-weight:700;color:#3d5148}
+.attach-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(88px,1fr));gap:8px}
+.attach-option{display:flex;flex-direction:column;align-items:center;gap:6px;border:1px solid #e1e5d6;background:#f4f5ec;border-radius:14px;padding:13px 6px;font-size:12px;color:#33483e}
+.attach-option span{font-size:22px}
+.chat-view .chat-composer{padding:7px 9px;border-radius:22px;align-items:center;box-shadow:0 4px 20px #182c2a0d}
+.chat-view .chat-composer textarea{min-height:40px;max-height:140px;padding:9px 2px;font-size:14px}
+.chat-view .chat-composer .icon-button{width:40px;height:40px}
+.chat-view .send{width:40px;height:40px;border-radius:50%}
+.chat-message small.chat-attached{display:block;margin-top:6px;font-size:10px;color:#7f8c78;white-space:normal}
+.chat-choices{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;white-space:normal}
+.chat-choice{border:1px solid #cdd8c2;background:#fffefa;border-radius:20px;padding:9px 13px;font-size:12px;color:#33483e}
+.chat-choice.chosen{background:var(--ink);color:#fff;border-color:var(--ink)}
+.chat-choice:disabled:not(.chosen){opacity:.45}
+.job-card{display:flex;flex-direction:column;gap:9px;white-space:normal;width:min(100%,420px);max-width:100%}
+.job-title{font-size:12px;color:#556650;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.job-label{font-size:14px;font-weight:600;color:var(--ink)}
+.job-sub{font-size:11px;color:#6f7d66}
+.job-sub:empty{display:none}
+.job-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.job-actions:empty{display:none}
+.job-actions .button{min-height:40px;padding:9px 15px}
+.job-connect{background:#2f5d8a}
+.job-card.done{background:#f6f9f1;border-color:#cfdcc4}
+.job-card.failed{background:#f6efe8;border-color:#ead8c8}
+.job-preview:empty{display:none}
+.job-preview img,.job-preview video,.job-preview canvas{max-width:100%;max-height:260px;border-radius:10px;display:block;margin:auto}
+.job-preview audio{width:100%}
+.job-qr canvas{width:100%;max-width:260px;height:auto;display:block;margin:4px auto;border-radius:10px;background:#fff}
+.job-qr .qr-actions{display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.job-next .chain-actions{margin:4px 0 0;padding:0;border:0;background:none}
+@media(max-width:680px){
+ .chat-view{height:calc(100dvh - 76px);padding:10px 12px calc(76px + env(safe-area-inset-bottom))}
+ .chat-head h1{font-size:18px}
+ .chat-view .chat-shell{margin-top:6px}
+ .chat-message{font-size:13px;max-width:92%}
+}
+.job-preview .result-preview-box{margin:0;padding:0;border:0;background:none}
+.job-preview .result-preview-box>h3{display:none}
+.job-preview .result-preview-box .button{min-height:42px;margin-top:8px}
+.chat-choice.chosen:disabled{opacity:1}
+.job-next h4{font-size:12px;margin:6px 0;color:#556650}
+.job-next .chain-grid{display:flex;flex-wrap:wrap;gap:6px}
+.job-next .chain-btn{min-height:0;padding:8px 12px;font-size:12px;border-radius:18px;gap:6px;width:auto;flex:none}
+.job-next .chain-btn span{font-size:15px}
+.job-next .recipe-btn{padding:10px 12px}
+.job-next .share-row .button{min-height:38px}
