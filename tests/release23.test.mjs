@@ -95,3 +95,19 @@ test('cloud tools hide the support panel and GPU choice; terms page and verifica
   assert.match(readFileSync('src/terms.html', 'utf8'), /شروط الاستخدام/);
   assert.match(readFileSync('netlify.toml', 'utf8'), /from = "\/terms"/);
 });
+
+test('search: public pages are indexable, technical files are not, sitemap/robots/structured data ship', async () => {
+  const {netlifyStaticHeaders, NOINDEX} = await import('../src/netlify-static.js');
+  const headers = netlifyStaticHeaders({'X-Content-Type-Options': 'nosniff'});
+  const global = headers.split('\n/')[0];
+  assert.doesNotMatch(global, /noindex/);
+  assert.ok(NOINDEX.includes('/oauth-return.html'));
+  assert.match(headers, /\/oauth-return\.html\n  X-Robots-Tag: noindex, nofollow/);
+  const html = readFileSync('src/index.html', 'utf8');
+  assert.match(html, /<link rel="canonical" href="https:\/\/madarfiles\.netlify\.app\/">/);
+  assert.match(html, /property="og:image" content="https:\/\/madarfiles\.netlify\.app\/og-image\.jpg"/);
+  const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)[1]);
+  assert.equal(ld['@graph'][1]['@type'], 'WebApplication');
+  assert.match(readFileSync('src/robots.txt', 'utf8'), /Sitemap: https:\/\/madarfiles\.netlify\.app\/sitemap\.xml/);
+  assert.match(readFileSync('src/sitemap.xml', 'utf8'), /<loc>https:\/\/madarfiles\.netlify\.app\/terms<\/loc>/);
+});

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /runtime/
+Disallow: /oauth-return.html
+
+Sitemap: https://madarfiles.netlify.app/sitemap.xml
