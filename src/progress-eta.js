@@ -13,7 +13,7 @@ const VERB = {
   videogen: 'جاري توليد المقطع…'
 };
 // Seconds of processing per second of media, before this device has measured its own.
-const PER_MEDIA_SECOND = { separate: 0.22, 'separate-fast': 0.07, dub: 0.9, asr: 0.25, translate: 0.35, burn: 0.45, convert: 0.3, resize: 0.35, download: 0.05 };
+const PER_MEDIA_SECOND = { separate: 0.22, 'separate-fast': 0.15, dub: 0.9, asr: 0.25, translate: 0.35, burn: 0.45, convert: 0.3, resize: 0.35, download: 0.05 };
 const FIXED = { cutout: 25, ocr: 30, word: 40, imagegen: 60, videogen: 240, translate: 30 };
 
 export function phaseLabel(tool, step) {
@@ -116,8 +116,8 @@ export function createEta({ tool, steps, mediaSeconds = 0, bytes = 0, store = gl
       const dt = (t - lastTick) / 1000; lastTick = t;
       if (shown === null) shown = target;
       else if (target < shown) shown = target;                       // good news shows at once
-      else if (target > shown * 1.3 + 15) shown = target;            // a real re-estimate
-      else shown = Math.max(1, shown - dt);                          // otherwise it keeps counting down
+      else if (target > shown * 2 + 60) shown = target;              // only a plainly wrong estimate jumps up
+      else shown = Math.max(2, shown - dt * (target > shown ? 0.25 : 1)); // running late: slow the count, never add time
       const elapsed = (t - began) / 1000;
       const percent = finished ? 100 : Math.min(97, Math.max(2, (100 * elapsed) / (elapsed + shown)));
       return { label: phaseLabel(tool, steps[at]), remaining: shown, text: remainingText(shown), percent };
