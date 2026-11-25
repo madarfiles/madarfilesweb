@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
   <url>
-    <loc>https://madarfiles.netlify.app/</loc>
+    <loc>https://madarfiles.com/</loc>
     <lastmod>2026-11-23</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
-    <image:image><image:loc>https://madarfiles.netlify.app/og-image.jpg</image:loc></image:image>
+    <image:image><image:loc>https://madarfiles.com/og-image.jpg</image:loc></image:image>
   </url>
   <url>
-    <loc>https://madarfiles.netlify.app/privacy</loc>
+    <loc>https://madarfiles.com/privacy</loc>
     <lastmod>2026-11-23</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
-    <loc>https://madarfiles.netlify.app/terms</loc>
+    <loc>https://madarfiles.com/terms</loc>
     <lastmod>2026-11-23</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.4</priority>

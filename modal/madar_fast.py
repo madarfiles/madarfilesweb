@@ -15,7 +15,8 @@ from pathlib import Path
 
 import modal
 
-SITE = 'https://madarfiles.netlify.app'
+SITE = 'https://madarfiles.netlify.app'  # server-to-server ticket checks (works under any domain)
+ORIGINS = ['https://madarfiles.com', 'https://www.madarfiles.com', 'https://madarfiles.netlify.app']
 MODEL = 'UVR-MDX-NET-Voc_FT.onnx'  # same model as the Colab tool, so results match
 MODELS = '/models'
 MAX_BYTES = 150 * 1024 * 1024
@@ -129,7 +130,7 @@ def web():
     from fastapi.responses import JSONResponse, Response
 
     api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    api.add_middleware(CORSMiddleware, allow_origins=[SITE], allow_methods=['GET', 'POST'], allow_headers=['Content-Type', 'X-Madar-Ticket', 'X-Madar-Ext', 'X-Madar-Out'], max_age=600)
+    api.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=['GET', 'POST'], allow_headers=['Content-Type', 'X-Madar-Ticket', 'X-Madar-Ext', 'X-Madar-Out'], max_age=600)
     not_ready = tuple(e for e in (TimeoutError, getattr(modal.exception, 'TimeoutError', None)) if e)
 
     def refuse(code, status):
