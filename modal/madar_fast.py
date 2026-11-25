@@ -32,6 +32,8 @@ OUT = {
 }
 
 app = modal.App('madar-fast')
+# Which calls have actually started on a GPU (a call waiting for a free card is 'queued').
+started = modal.Dict.from_name('madar-fast-started', create_if_missing=True)
 
 
 def _fetch_model():
@@ -68,7 +70,7 @@ def _seconds(path):
         return 0.0
 
 
-@app.cls(image=gpu_image, gpu='L4', timeout=1200, scaledown_window=60, max_containers=2)
+@app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1200, scaledown_window=60, max_containers=2)
 class MusicRemover:
     @modal.enter()
     def load(self):
@@ -87,6 +89,10 @@ class MusicRemover:
     def run(self, data: bytes, ext: str, out: str) -> bytes:
         if ext not in IN_EXTS or out not in OUT:
             raise ValueError('BAD_FORMAT')
+        try:
+            started.put(modal.current_function_call_id(), True)
+        except Exception:
+            pass
         work = Path(tempfile.mkdtemp(prefix='madar-'))
         try:
             source = work / ('in.' + ext)
@@ -164,11 +170,26 @@ def web():
         try:
             data = await modal.FunctionCall.from_id(call_id).get.aio(timeout=0)
         except not_ready:
-            return {'state': 'running'}
+            try:
+                on_gpu = await started.get.aio(call_id)
+            except Exception:
+                on_gpu = True
+            return {'state': 'running' if on_gpu else 'queued'}
         except Exception as error:
             text = str(error)
             code = next((c for c in ('TOO_LONG', 'BAD_FORMAT') if c in text), 'FAILED')
             return JSONResponse({'state': 'error', 'error': code}, status_code=500)
         return Response(data, media_type=OUT[out][1], headers={'Cache-Control': 'no-store'})
+
+    @api.post('/cancel/{call_id}')
+    async def cancel(call_id: str):
+        # The page gives up on a call still waiting for a card; it must not start later and spend credit.
+        if not re.fullmatch(r'fc-[A-Za-z0-9]{10,40}', call_id):
+            return refuse('BAD_REQUEST', 400)
+        try:
+            await modal.FunctionCall.from_id(call_id).cancel.aio()
+        except Exception:
+            pass
+        return {'ok': True}
 
     return api
