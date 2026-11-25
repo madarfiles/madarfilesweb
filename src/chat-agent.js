@@ -261,6 +261,7 @@ export function mountChat(ctx) {
     c.actions.replaceChildren();
     const again = el('button', 'button secondary', 'جرّب مرة ثانية'); again.type = 'button'; again.onclick = () => { attachments = j.files.slice(); renderChips(); start(j.plan, j.files); };
     const open = el('button', 'text-btn', 'افتح الأداة'); open.type = 'button'; open.onclick = () => ctx.showTool();
+    if (isColab(j.tool) && ctx.instance()?.needsGoogle?.()) { const g = el('button', 'button job-connect', 'اتصل بـGoogle وكمّل'); g.type = 'button'; g.onclick = () => { ctx.instance()?.connect?.(); g.textContent = 'بعد ما توافق، اضغط «جرّب مرة ثانية»'; g.disabled = true; }; c.actions.prepend(g); }
     c.actions.append(again, open); recipe = null; settle();
   }
   function cancel() {

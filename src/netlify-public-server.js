@@ -1,14 +1,27 @@
 import {boundedBody} from './cloud-server.js';
-import {createNetlifyHandler} from './netlify-server.js';
+import {createNetlifyHandler,errorReport} from './netlify-server.js';
+import {fastTicket,fastRedeem} from './fast-lane.js';
 import {handleP2P} from './p2p-server.js';
 
 // Public visitors bring their own provider credentials. The digest is only an
 // isolation namespace; authorization is still checked by Google/Groq upstream.
-export function createPublicHandler({fetcher=fetch,security={},p2pStore}={}) {
+export function createPublicHandler({fetcher=fetch,security={},p2pStore,fastStore}={}) {
  return async(request,context={})=>{
   const reply=(body,status=200)=>Response.json(body,{status,headers:{...security,'Cache-Control':'private, no-store'}});
   const url=new URL(request.url),path=url.pathname;
   if(path==='/api/session')return request.method==='GET'?reply({authenticated:false,access:'public'}):reply({error:'طريقة غير مسموحة'},405);
+  // Error reports from visitors' browsers (logged as MADAR_REPORT lines in the function log).
+  if(path==='/api/report')return errorReport(request,security);
+  // The Modal fast lane redeems tickets server-to-server, so this one route takes no Origin.
+  if(path==='/api/fast/redeem'||path==='/api/fast/ticket'){
+   if(request.method!=='POST')return reply({error:'طريقة غير مسموحة'},405);
+   if(path==='/api/fast/ticket'&&request.headers.get('Origin')!==url.origin)return reply({error:'مصدر الطلب غير مسموح'},403);
+   if(!fastStore)return reply({ok:false,reason:'off'});
+   try{const body=JSON.parse(new TextDecoder().decode(await boundedBody(request,4096)));const store=typeof fastStore==='function'?fastStore():fastStore;
+    const ip=context.ip||request.headers.get('x-nf-client-connection-ip')||'';
+    const[status,data]=path==='/api/fast/ticket'?await fastTicket(body,store,{ip}):await fastRedeem(body,store);return reply(data,status);}
+   catch{return reply({ok:false},400);}
+  }
   if(!path.startsWith('/api/colab/')&&!path.startsWith('/api/drive/')&&!path.startsWith('/api/p2p/')&&!['/api/transcribe','/api/translate'].includes(path))return reply({error:'غير موجود'},404);
   if(request.method!=='POST')return reply({error:'طريقة غير مسموحة'},405);
   if(request.headers.get('Origin')!==url.origin)return reply({error:'مصدر الطلب غير مسموح'},403);
