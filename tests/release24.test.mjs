@@ -26,7 +26,7 @@ test('fast lane: tickets per visitor and per day, used once, expire', async () =
  const late = await fastTicket({tool: 'separate'}, store, {ip: '9.9.9.9', now: now + 86400e3, limits});
  assert.equal((await fastRedeem({ticket: late[1].ticket}, store, {now: now + 86400e3 + 5000}))[0], 403, 'expired');
  assert.equal((await fastRedeem({ticket: 'nope'}, store))[0], 400);
- assert.equal(FAST_LIMITS.perVisitor, 5);
+ assert.equal(FAST_LIMITS.perVisitor, 20);
 });
 
 test('public handler: error reports are logged, fast routes work, ticket needs same origin', async () => {

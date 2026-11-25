@@ -3,7 +3,9 @@
 // drained. A ticket is random, used once and expires quickly; the Modal app redeems it here
 // before doing any work. Only a salted hash of the visitor's address is stored, for one day.
 export const FAST_ENDPOINT = 'https://madarfiles-app--madar-fast.modal.run';
-export const FAST_LIMITS = {perVisitor: 5, perDay: 60, ticketMs: 15 * 60e3};
+// Phone networks put many people behind one address, so the per-address ceiling is generous; the
+// daily site ceiling (about a dollar of GPU time) keeps the monthly free credit from running dry.
+export const FAST_LIMITS = {perVisitor: 20, perDay: 150, ticketMs: 15 * 60e3};
 const TOOLS = new Set(['separate']);
 
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');

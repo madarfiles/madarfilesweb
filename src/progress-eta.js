@@ -55,17 +55,22 @@ export function createEta({ tool, steps, mediaSeconds = 0, bytes = 0, store = gl
   const mine = learned[tool] || {};
   let media = Number.isFinite(mediaSeconds) && mediaSeconds > 0 ? mediaSeconds : 0;
   const mb = Math.max(0, bytes) / 1048576;
+  // One slow run (a long wait for Google's card, say) must not inflate every later countdown:
+  // what this device learned is trusted only up to three times the usual figure.
+  const capped = (value, usual) => Math.min(value, usual * 3);
   const guess = step => {
     const seen = mine[step];
     if (step === 'الرفع') return Math.max(2, mb / (seen || 1.5)) + 2;
     if (step === 'التنزيل') return Math.max(2, (mb * 0.8) / (seen || 3)) + 2;
     if (step === 'المعالجة') {
-      if (media && (seen?.perSecond || PER_MEDIA_SECOND[tool])) return Math.max(10, media * (seen?.perSecond || PER_MEDIA_SECOND[tool]));
+      const usual = PER_MEDIA_SECOND[tool];
+      if (media && (seen?.perSecond || usual)) return Math.max(10, media * (usual ? capped(seen?.perSecond || usual, usual) : seen.perSecond));
       return seen?.seconds || FIXED[tool] || 60;
     }
-    if (step === 'تجهيز الصوت في جهازك' || step === 'تركيب الفيديو في جهازك') return (typeof seen === 'number' ? seen : 3 + media * 0.06);
-    if (typeof seen === 'number') return seen;
-    return step === 'تجهيز الجلسة' ? 25 : step === 'تجهيز الأداة' ? 45 : 15;
+    if (step === 'تجهيز الصوت في جهازك' || step === 'تركيب الفيديو في جهازك') return (typeof seen === 'number' ? capped(seen, 3 + media * 0.06) : 3 + media * 0.06);
+    const usual = step === 'تجهيز الجلسة' ? 25 : step === 'تجهيز الأداة' ? 45 : 15;
+    if (typeof seen === 'number') return capped(seen, Math.max(usual, 40));
+    return usual;
   };
   const began = now();
   let at = 0, stepAt = began, hint = null, shown = null, lastTick = began, finished = false;
