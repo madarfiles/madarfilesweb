@@ -19,7 +19,7 @@ SITE = 'https://madarfiles.netlify.app'
 MODEL = 'UVR-MDX-NET-Voc_FT.onnx'  # same model as the Colab tool, so results match
 MODELS = '/models'
 MAX_BYTES = 150 * 1024 * 1024
-MAX_SECONDS = 20 * 60
+MAX_SECONDS = 60 * 60
 IN_EXTS = {'mkv', 'mka', 'mp4', 'm4a', 'mov', 'webm', 'mp3', 'aac', 'wav', 'flac', 'ogg', 'opus', 'm4b', 'aiff', 'aif', 'wma', 'amr', 'ac3', 'eac3', 'mp2', 'alac'}
 OUT = {
     'm4a': (['-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4'], 'audio/mp4'),
@@ -70,7 +70,7 @@ def _seconds(path):
         return 0.0
 
 
-@app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1200, scaledown_window=60, max_containers=2)
+@app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1800, scaledown_window=60, max_containers=2)
 class MusicRemover:
     @modal.enter()
     def load(self):
