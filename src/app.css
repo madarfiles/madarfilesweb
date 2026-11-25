@@ -231,3 +231,4 @@ footer #limitsBtn{white-space:nowrap;flex:none}
 
 /* video previews: keep browser overlay buttons (pop-up player etc.) off the save button */
 .result-preview-box video{margin-bottom:10px}
+#colabConnect.is-connected{background:#e4efe6;color:#1f4d3a;border:1px solid #b9d6c1}

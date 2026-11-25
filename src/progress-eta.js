@@ -6,14 +6,14 @@ const PREP = new Set(['تجهيز الصوت في جهازك', 'تجهيز ال�
 const FINISH = new Set(['التنزيل', 'تركيب الفيديو في جهازك']);
 
 const VERB = {
-  separate: 'جاري إزالة الموسيقى…', download: 'جاري تحميل المقطع…', dub: 'جاري تجهيز الدبلجة…',
+  separate: 'جاري إزالة الموسيقى…', 'separate-fast': 'جاري إزالة الموسيقى…', download: 'جاري تحميل المقطع…', dub: 'جاري تجهيز الدبلجة…',
   asr: 'جاري تفريغ الكلام…', translate: 'جاري الترجمة…', burn: 'جاري كتابة الترجمة على الفيديو…',
   convert: 'جاري التحويل…', resize: 'جاري تغيير المقاس…', cutout: 'جاري إزالة الخلفية…',
   ocr: 'جاري استخراج النص…', word: 'جاري التحويل إلى Word…', imagegen: 'جاري توليد الصورة…',
   videogen: 'جاري توليد المقطع…'
 };
 // Seconds of processing per second of media, before this device has measured its own.
-const PER_MEDIA_SECOND = { separate: 0.22, dub: 0.9, asr: 0.25, translate: 0.35, burn: 0.45, convert: 0.3, resize: 0.35, download: 0.05 };
+const PER_MEDIA_SECOND = { separate: 0.22, 'separate-fast': 0.07, dub: 0.9, asr: 0.25, translate: 0.35, burn: 0.45, convert: 0.3, resize: 0.35, download: 0.05 };
 const FIXED = { cutout: 25, ocr: 30, word: 40, imagegen: 60, videogen: 240, translate: 30 };
 
 export function phaseLabel(tool, step) {
