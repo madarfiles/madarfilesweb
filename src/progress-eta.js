@@ -6,14 +6,14 @@ const PREP = new Set(['تجهيز الصوت في جهازك', 'تجهيز ال�
 const FINISH = new Set(['التنزيل', 'تركيب الفيديو في جهازك']);
 
 const VERB = {
-  separate: 'جاري إزالة الموسيقى…', 'separate-fast': 'جاري إزالة الموسيقى…', download: 'جاري تحميل المقطع…', dub: 'جاري تجهيز الدبلجة…',
+  separate: 'جاري إزالة الموسيقى…', 'separate-fast': 'جاري إزالة الموسيقى…', 'separate-device': 'جاري إزالة الموسيقى…', download: 'جاري تحميل المقطع…', dub: 'جاري تجهيز الدبلجة…',
   asr: 'جاري تفريغ الكلام…', translate: 'جاري الترجمة…', burn: 'جاري كتابة الترجمة على الفيديو…',
   convert: 'جاري التحويل…', resize: 'جاري تغيير المقاس…', cutout: 'جاري إزالة الخلفية…',
   ocr: 'جاري استخراج النص…', word: 'جاري التحويل إلى Word…', imagegen: 'جاري توليد الصورة…',
   videogen: 'جاري توليد المقطع…'
 };
 // Seconds of processing per second of media, before this device has measured its own.
-const PER_MEDIA_SECOND = { separate: 0.22, 'separate-fast': 0.15, dub: 0.9, asr: 0.25, translate: 0.35, burn: 0.45, convert: 0.3, resize: 0.35, download: 0.05 };
+const PER_MEDIA_SECOND = { separate: 0.22, 'separate-fast': 0.15, 'separate-device': 0.25, dub: 0.9, asr: 0.25, translate: 0.35, burn: 0.45, convert: 0.3, resize: 0.35, download: 0.05 };
 const FIXED = { cutout: 25, ocr: 30, word: 40, imagegen: 60, videogen: 240, translate: 30 };
 
 export function phaseLabel(tool, step) {
@@ -97,6 +97,10 @@ export function createEta({ tool, steps, mediaSeconds = 0, bytes = 0, store = gl
       if (!(seconds > 0) || media) return;
       media = seconds;
       estimates = steps.map((step, i) => (i < at ? estimates[i] : guess(step)));
+    },
+    // An exact remaining time for the current step (e.g. measured from the work done so far).
+    hintSeconds(seconds) {
+      if (Number.isFinite(seconds) && seconds >= 0) hint = { seconds, at: now() };
     },
     hint(text) {
       const s = announcedSeconds(text);

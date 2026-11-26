@@ -21,9 +21,21 @@ export function report(kind, detail = {}) {
     const key = kind + '|' + String(detail.tool || '') + '|' + String(detail.message || '').slice(0, 120);
     if (SENT.has(key)) return;
     SENT.add(key); count++;
-    const body = JSON.stringify(reportBody(kind, detail));
-    fetch('/api/report', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body, keepalive: body.length < 60000}).catch(() => {});
+    return send(JSON.stringify(reportBody(kind, detail)));
   } catch {}
+  return Promise.resolve(false);
+}
+
+// A report must not get lost on a weak phone connection: an ordinary request first (keepalive
+// only while the page is closing, because some phones drop keepalive requests), one retry, and
+// finally the browser's beacon.
+async function send(body) {
+  const post = keepalive => fetch('/api/report', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body, keepalive, cache: 'no-store'});
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { const r = await post(document.visibilityState === 'hidden' && body.length < 60000); if (r.ok || r.status < 500) return true; } catch {}
+    await new Promise(done => setTimeout(done, 2000));
+  }
+  try { return navigator.sendBeacon?.('/api/report', new Blob([body], {type: 'application/json'})) || false; } catch { return false; }
 }
 
 export function watchErrors() {

@@ -13,7 +13,8 @@ import {validateCloudConfig,cloudCatalog} from './cloud-catalog.js';
 import {mountNextSteps} from './next-steps.js';
 import {report} from './error-report.js';
 import {downloadParts,driveUpload,driveFetchPart,driveDelete,driveCacheList,driveCacheClear,DRIVE_CACHE_CAP,sizeLabel} from './colab-transfer.js';
-import {isVideoName,extractAudio,muxAudio} from './local-ffmpeg.js';
+import {isVideoName,extractAudio,muxAudio,decodePCM,encodePCM} from './local-ffmpeg.js';
+import {deviceSupport,markedSlow,markSlow,modelSaved,prepareSeparator,separateOnDevice,DEVICE_MAX_SECONDS} from './device-separate.js';
 import {clipRange,downloadURL,memoryProfile} from './colab-core.js';
 // Length of an audio/video file from its own metadata (0 when the browser cannot tell).
 function mediaSeconds(f){return new Promise(done=>{if(!f||!/^(audio|video)\//.test(f.type||'')&&!/\.(mp4|mov|mkv|webm|m4a|mp3|wav|aac|ogg|opus|flac)$/i.test(f.name||'')){done(0);return;}let u='';const m=document.createElement(/^audio\//.test(f.type)?'audio':'video');const end=v=>{clearTimeout(timer);m.removeAttribute('src');try{m.load();}catch{}if(u)URL.revokeObjectURL(u);done(Number.isFinite(v)&&v>0?v:0);};const timer=setTimeout(()=>end(0),6000);m.preload='metadata';m.onloadedmetadata=()=>end(m.duration);m.onerror=()=>end(0);try{u=URL.createObjectURL(f);m.src=u;}catch{end(0);}});}
@@ -197,6 +198,31 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
    const state=await r.json().catch(()=>({}));if(state.state==='queued'&&Date.now()-began>30e3){drop();logAllocation('المسار السريع: ما فيه كرت فاضي بعد 30 ثانية');throw Error('fast queue');}if(state.state==='error'){if(state.error==='TOO_LONG')throw Error('TOO_LONG');throw Error('fast '+(state.error||'FAILED'));}}
   throw Error('fast timeout');
  }
+ // Music removal on this device first (WebGPU). Returns true when it delivered the result; on
+ // anything else (unsupported, long, slow, a failure) it returns false and the quick engine runs.
+ async function deviceFirst(plan,signal){
+  let sup;try{sup=await deviceSupport();}catch{return false;}
+  if(!sup.ok){logAllocation('الفصل في الجهاز غير مدعوم: '+sup.why);return false;}
+  if(markedSlow()){logAllocation('الفصل في الجهاز: الجهاز بطيء (محفوظ) · نروح للسريع');return false;}
+  const media=await mediaSeconds(file);if(!media||media>DEVICE_MAX_SECONDS){logAllocation('الفصل في الجهاز: المدة '+Math.round(media)+' ث · نروح للسريع');return false;}
+  startRail(['تجهيز الصوت في جهازك','تجهيز الأداة','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],'separate-device');const t0=performance.now();
+  try{
+   message('نجهّز الصوت في جهازك…');const pcm=await decodePCM(file);if(signal.aborted)throw new DOMException('Cancelled','AbortError');
+   logAllocation('الفصل في الجهاز · '+(sup.gpu||'GPU')+' · '+Math.round(pcm.seconds)+' ث صوت · فك '+secs(performance.now()-t0));
+   step('تجهيز الأداة');const saved=await modelSaved();message(saved?'نجهّز الأداة…':'نجهّز الأداة في جهازك (مرة وحدة بس)…');
+   const p0=performance.now();await prepareSeparator(p=>message('نجهّز الأداة في جهازك (مرة وحدة بس) · '+Math.round(p*100)+'٪'));logAllocation('الفصل في الجهاز: الأداة جاهزة · '+(saved?'محفوظة':'تنزيل')+' · '+secs(performance.now()-p0));
+   step('المعالجة');message('جاري إزالة الموسيقى…');const s0=performance.now();
+   const out=await separateOnDevice(pcm.left,pcm.right,{signal,onChunk:(d,t,per)=>rail?.eta.hintSeconds((t-d)*per+3)});
+   logAllocation('الفصل في الجهاز خلص · '+out.chunks+' جزء · '+secs(performance.now()-s0));
+   step('التنزيل');message('نجهّز النتيجة…');const blob=await encodePCM(out.left,out.right,plan.mux?'m4a':plan.out);
+   await fastDeliver(blob,plan);report('device',{tool:toolKey,message:'فصل في الجهاز',log:'ok · '+Math.round(pcm.seconds)+'s audio · '+secs(performance.now()-t0)+' · '+(sup.gpu||'')});return true;
+  }catch(e){
+   if(signal.aborted)throw e;const why=String(e?.message||e).slice(0,160);if(why==='DEVICE_SLOW')markSlow();
+   logAllocation('الفصل في الجهاز توقف: '+why+' · نروح للسريع');stopRail();
+   report('device',{tool:toolKey,message:why==='DEVICE_SLOW'?'الجهاز أبطأ من المقطع؛ تحوّل للسريع':'فشل الفصل في الجهاز؛ تحوّل للسريع',log:why+'\n'+(sup.gpu||'')+'\n'+[...allocationLog.children].slice(-8).map(li=>li.textContent).join('\n')});
+   message('جاري التجهيز…');return false;
+  }
+ }
  async function fastDeliver(blob,plan){
   let outExt=plan.out,outKind='audio';
   if(plan.mux){step('تركيب الفيديو في جهازك');message('نركّب الصوت النظيف على الفيديو الأصلي في جهازك…');try{blob=await muxAudio(plan.mux.video,blob,plan.mux.ext,p=>message('نركّب الصوت النظيف على الفيديو · '+p+'٪'));outExt=plan.mux.ext;outKind='video';}catch{message('ما قدرنا نركّب الفيديو في هذا الجهاز؛ هذا الصوت النظيف جاهز للحفظ.');}}
@@ -322,7 +348,7 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
  q('#colabRun').onclick=()=>{let quick=false;try{const r=clipRange(q('#colabRange').value,q('#colabStart').value,q('#colabDuration').value);quick=!!fastPlan(file,r.start,r.duration);}catch{}task(async signal=>{
   if(!q('#colabConsent').checked)throw Error('فعّل الموافقة على رفع الملف واستخدام رصيد Colab أولًا');if(taskSpec){if(taskSpec.noFile||!selectedFiles.length){await startExtraTask(signal);return;}if(selectedFiles.length>5||selectedFiles.reduce((n,f)=>n+f.size,0)>512*1048576)throw Error('اختر حتى 5 ملفات بإجمالي 512 MB');if(completedFiles.size===selectedFiles.length){completedFiles.clear();batchBytes=0;}const picked=[...selectedFiles];if(picked.some(f=>!taskSpec.exts.includes(f.name.split('.').pop().toLowerCase())))throw Error('توجد صيغة غير مناسبة في المجموعة');if(/Burn$/.test(q('#cloud-operation')?.value||'')&&picked.some(f=>f.type.startsWith('audio/')||!['mp4','mkv','mov','webm','avi','mpeg'].includes(f.name.split('.').pop().toLowerCase())))throw Error('اختر فيديوهات فقط عند الكتابة على الفيديو');for(let i=0;i<picked.length;i++){if(completedFiles.has(i))continue;if(signal.aborted)throw new DOMException('Cancelled','AbortError');if(batchBytes>256*1048576)throw Error('احفظ النتائج وابدأ دفعة جديدة لتخفيف ذاكرة المتصفح');file=picked[i];captionEditor?.sync();captionEditor?.load(file);queueStatus.textContent='الملف '+(i+1)+' من '+picked.length+' · '+file.name;await startExtraTask(signal);completedFiles.add(i);}queueStatus.textContent='اكتملت '+completedFiles.size+' من '+picked.length+' ملفات.';return;}if(downloadMode){const url=downloadURL(q('#colabLink').value),info=await check(signal);let engine=q('#colabGPU').value;if(engine==='CPU'&&!info.cpu)engine=(info.specs[0]?.accelerator)||'T4';if(!job&&(!eligibleGPU(engine,info)))throw Error('المورد المختار غير مؤهل للحساب حاليًا');startRail(['تجهيز الجلسة','تجهيز الأداة','المعالجة','التنزيل']);await acquireSession(engine,signal);job.config={task:'download',url};remember(job);await runJob({runtime:job.runtime,kernel:job.kernel,...job.config},signal);await monitor(signal);return;}if(!file||!file.size||file.size>512*1048576)throw Error('اختر صوتًا أو فيديو غير فارغ حتى 512 MB');const ext=file.name.split('.').pop().toLowerCase();if(!MEDIA_INPUTS.includes(ext))throw Error('صيغة الملف غير مدعومة');const {start,duration}=clipRange(q('#colabRange').value,q('#colabStart').value,q('#colabDuration').value);
   // Quick engine first (behind the Colab connection); whatever it cannot finish goes on to Colab below.
-  let preAudio;{const plan=fastPlan(file,start,duration);if(plan){startRail([...(plan.extract?['تجهيز الصوت في جهازك']:[]),'الرفع','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],'separate-fast');try{let payload=file;if(plan.extract){message('نطلع الصوت من الفيديو في جهازك…');payload=preAudio=await extractAudio(file,p=>message('نطلع الصوت من الفيديو · '+p+'٪'));}
+  let preAudio;{const plan=fastPlan(file,start,duration);if(plan&&await deviceFirst(plan,signal))return;if(plan){startRail([...(plan.extract?['تجهيز الصوت في جهازك']:[]),'الرفع','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],'separate-fast');try{let payload=file;if(plan.extract){message('نطلع الصوت من الفيديو في جهازك…');payload=preAudio=await extractAudio(file,p=>message('نطلع الصوت من الفيديو · '+p+'٪'));}
    if(payload){const blob=await fastSeparate(payload,plan.out,signal);if(blob){await fastDeliver(blob,plan);return;}}}
    catch(e){if(signal.aborted)throw e;logAllocation('المسار السريع: '+String(e.message||e).slice(0,120));message('جاري التجهيز…');}
    stopRail();report('fast',{tool:toolKey,message:'تحوّل من المعالج السريع إلى Colab',log:[...allocationLog.children].slice(-12).map(li=>li.textContent).join('\n')});try{await freshGrant(8);}catch{}}}

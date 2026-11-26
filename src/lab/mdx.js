@@ -112,7 +112,7 @@ export function chunkWave(spec, fft, win) {
 }
 
 // Whole song: run(specFloat32) must resolve to the model's output Float32Array.
-export async function separateVocals(left, right, run, {onProgress = () => {}, signal} = {}) {
+export async function separateVocals(left, right, run, {onProgress = () => {}, onChunk = () => {}, signal} = {}) {
   const n = left.length, padEnd = GEN - (n % GEN), total = TRIM + n + padEnd + TRIM;
   const L = new Float32Array(total), R = new Float32Array(total);
   L.set(left, TRIM); R.set(right, TRIM);
@@ -130,6 +130,8 @@ export async function separateVocals(left, right, run, {onProgress = () => {}, s
     timing.wave += performance.now() - t;
     for (let j = 0; j < GEN && i + j < n; j++) { vl[i + j] = wl[TRIM + j] * COMPENSATE; vr[i + j] = wr[TRIM + j] * COMPENSATE; }
     onProgress(++done / chunks, timing);
+    onChunk(done, chunks);
+    await new Promise(r => setTimeout(r, 0)); // let the page breathe between pieces
   }
   return {left: vl, right: vr, timing, chunks};
 }

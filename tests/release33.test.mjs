@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {markedSlow,markSlow,DEVICE_MAX_SECONDS} from '../src/device-separate.js';
+test('slow device is remembered for a week, then tried again',()=>{const m=new Map(),store={getItem:k=>m.get(k)??null,setItem:(k,v)=>m.set(k,v)};assert.equal(markedSlow(store),false);markSlow(store);assert.equal(markedSlow(store),true);m.set('madar-device-slow',String(Date.now()-1));assert.equal(markedSlow(store),false);assert.equal(DEVICE_MAX_SECONDS,600);});
+test('music removal tries the device before the quick engine and Colab',async()=>{const src=await import('node:fs').then(f=>f.readFileSync(new URL('../src/colab-tool.js',import.meta.url),'utf8'));const a=src.indexOf('await deviceFirst(plan,signal)'),b=src.indexOf('fastSeparate(payload',a),c=src.indexOf('const info=await check(signal)',b);assert.ok(a>0&&b>a&&c>b);});
