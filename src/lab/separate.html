@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>تجربة الفصل في جهازك — مدار</title>
+<link rel="stylesheet" href="/app.css">
+<link rel="stylesheet" href="/lab/lab.css">
+</head>
+<body>
+<h1 class="lab-title">تجربة: إزالة الموسيقى داخل جهازك</h1>
+<p class="lab-note">هذي صفحة تجربة. الفصل يصير في جوالك أو كمبيوترك نفسه، والملف ما يطلع من جهازك. بعد ما تخلص تنرسل الأوقات ومعلومات الجهاز (بدون الملف) عشان نقيس السرعة.</p>
+
+<div class="lab-card">
+ <h2>جهازك</h2>
+ <div id="labDevice"></div>
+</div>
+
+<div class="lab-card">
+ <h2>الملف</h2>
+ <input id="labFile" type="file" accept="audio/*,video/*">
+ <label class="lab-note lab-check"><input id="labShort" type="checkbox" checked> اختبار سريع: أول 60 ثانية بس</label>
+ <div class="lab-actions"><button id="labRun" class="button" type="button" disabled>ابدأ الفصل في جهازي</button></div>
+ <div id="labBar"><i></i></div>
+ <div id="labStatus"></div>
+</div>
+
+<div class="lab-card" id="labResult" hidden>
+ <h2>النتيجة</h2>
+ <div id="labTimes"></div>
+ <audio id="labAudio" controls></audio>
+ <div class="lab-actions"><a id="labSave" class="button secondary" download="madar-voice.wav">حفظ الصوت</a></div>
+</div>
+<script type="module" src="/lab/lab.js"></script>
+</body>
+</html>

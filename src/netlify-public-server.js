@@ -1,17 +1,26 @@
 import {boundedBody} from './cloud-server.js';
 import {createNetlifyHandler,errorReport} from './netlify-server.js';
+import {listReports,verifyGithubToken} from './report-store.js';
 import {fastTicket,fastRedeem} from './fast-lane.js';
 import {handleP2P} from './p2p-server.js';
 
 // Public visitors bring their own provider credentials. The digest is only an
 // isolation namespace; authorization is still checked by Google/Groq upstream.
-export function createPublicHandler({fetcher=fetch,security={},p2pStore,fastStore}={}) {
+export function createPublicHandler({fetcher=fetch,security={},p2pStore,fastStore,reportStore,verifier=verifyGithubToken}={}) {
  return async(request,context={})=>{
   const reply=(body,status=200)=>Response.json(body,{status,headers:{...security,'Cache-Control':'private, no-store'}});
   const url=new URL(request.url),path=url.pathname;
   if(path==='/api/session')return request.method==='GET'?reply({authenticated:false,access:'public'}):reply({error:'طريقة غير مسموحة'},405);
   // Error reports from visitors' browsers (logged as MADAR_REPORT lines in the function log).
-  if(path==='/api/report')return errorReport(request,security);
+  if(path==='/api/report')return errorReport(request,security,reportStore);
+  // Kept reports, read back only by the repository's own GitHub workflow (see report-store.js).
+  if(path==='/api/report/list'){
+   if(request.method!=='GET'||!reportStore)return reply({error:'غير موجود'},404);
+   const claims=await verifier((request.headers.get('Authorization')||'').replace(/^Bearer\s+/i,''));
+   if(!claims)return reply({error:'غير مصرح'},401);
+   const days=Math.min(90,Math.max(1,Number(url.searchParams.get('days'))||7));
+   return reply({reports:await listReports(typeof reportStore==='function'?reportStore():reportStore,{days})});
+  }
   // The Modal fast lane redeems tickets server-to-server, so this one route takes no Origin.
   if(path==='/api/fast/redeem'||path==='/api/fast/ticket'){
    if(request.method!=='POST')return reply({error:'طريقة غير مسموحة'},405);

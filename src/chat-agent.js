@@ -1,6 +1,7 @@
 // The assistant does the work itself, right in the conversation: it asks what is missing with
 // buttons, runs the tool out of sight, shows one progress line, and hands the result back here
 // with download, share and "what next". Tools that need hand adjustments still open as a window.
+import {report} from './error-report.js';
 import QRCode from 'qrcode';
 import {renderResultPreview} from './result-preview.js';
 import {mountNextSteps, kindOf} from './next-steps.js';
@@ -255,6 +256,7 @@ export function mountChat(ctx) {
   }
   function done(j) { if (!j) return; j.busy = false; clearInterval(j.timer); j.card?.actions.querySelector('.job-cancel')?.remove(); }
   function fail(message) {
+    report('chat', {tool: job?.plan?.tool || job?.plan?.id || '', message: String(message || '')});
     const j = job; if (!j) { say('assistant', message); return; }
     done(j); const c = j.card;
     c.m.classList.add('failed'); c.label.textContent = 'ما زبطت 😕'; c.track.hidden = true; c.sub.textContent = message;

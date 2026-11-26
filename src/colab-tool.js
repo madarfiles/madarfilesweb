@@ -325,7 +325,7 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
   let preAudio;{const plan=fastPlan(file,start,duration);if(plan){startRail([...(plan.extract?['تجهيز الصوت في جهازك']:[]),'الرفع','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],'separate-fast');try{let payload=file;if(plan.extract){message('نطلع الصوت من الفيديو في جهازك…');payload=preAudio=await extractAudio(file,p=>message('نطلع الصوت من الفيديو · '+p+'٪'));}
    if(payload){const blob=await fastSeparate(payload,plan.out,signal);if(blob){await fastDeliver(blob,plan);return;}}}
    catch(e){if(signal.aborted)throw e;logAllocation('المسار السريع: '+String(e.message||e).slice(0,120));message('جاري التجهيز…');}
-   stopRail();try{await freshGrant(8);}catch{}}}
+   stopRail();report('fast',{tool:toolKey,message:'تحوّل من المعالج السريع إلى Colab',log:[...allocationLog.children].slice(-12).map(li=>li.textContent).join('\n')});try{await freshGrant(8);}catch{}}}
   const info=await check(signal);if(!job&&!info.specs.length)throw Error('Google ما عطتنا كرت شاشة فاضي الحين، وإزالة الموسيقى تحتاجه. جرّب بعد دقائق · GPU_UNAVAILABLE');
   // Video + music removal: only the audio travels (seconds instead of minutes); the cleaned
   // audio is put back on the original picture on this device. Not for a trimmed range or

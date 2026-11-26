@@ -16,6 +16,7 @@
     "@netlify/identity": "^2.0.1",
     "esbuild": "0.25.12",
     "fflate": "0.8.3",
+    "onnxruntime-web": "1.31.1",
     "pdf-lib": "1.17.1",
     "pdfjs-dist": "6.5.438",
     "qrcode": "1.5.4",

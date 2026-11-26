@@ -1,9 +1,9 @@
 // Automatic error reports: when something fails, the technical details (tool, message, code and
 // the support log, with links removed) go to Madar's server log so problems are found without
-// screenshots. No files, names typed by the visitor or Google tokens are sent. At most five
-// different reports per page visit.
+// screenshots. No files, names typed by the visitor or Google tokens are sent. At most fifteen
+// different reports per page visit; the server keeps them for 90 days.
 const SENT = new Set(); let count = 0;
-export const LIMIT = 5;
+export const LIMIT = 15;
 
 export function scrub(text, max) {
   return String(text ?? '').replace(/https?:\/\/\S+/g, '[رابط]').replace(/ya29\.[\w.-]+/g, '[token]').replace(/[\u0000-\u0008\u000b-\u001f]/g, ' ').slice(-max);
@@ -27,7 +27,30 @@ export function report(kind, detail = {}) {
 }
 
 export function watchErrors() {
-  addEventListener('error', e => { if (e.message) report('error', {message: e.message, stage: String(e.filename || '').split('/').pop() + ':' + e.lineno}); });
+  addEventListener('error', e => {
+    if (e.message) { report('error', {message: e.message, stage: String(e.filename || '').split('/').pop() + ':' + e.lineno + ':' + (e.colno || 0), log: String(e.error?.stack || '')}); return; }
+    // A script, style, font or image of the page itself that failed to load.
+    const t = e.target, src = t?.src || t?.href;
+    if (t && t !== window && src && new URL(src, location.href).origin === location.origin) report('load', {message: (t.tagName || '').toLowerCase() + ' ' + new URL(src, location.href).pathname});
+  }, true);
+  // Madar's own server answering with an error, or not answering at all.
+  const plain = window.fetch?.bind(window);
+  if (plain && !plain.madarWatched) {
+    const watched = async (input, init) => {
+      const url = typeof input === 'string' ? input : input?.url || '';
+      const path = url.startsWith('/') ? url : (() => { try { const u = new URL(url); return u.origin === location.origin ? u.pathname : (u.hostname.endsWith('.modal.run') ? 'modal' + u.pathname.replace(/fc-[\w]+/, 'fc-…') : ''); } catch { return ''; } })();
+      const mine = path.startsWith('/api/') && !path.startsWith('/api/report') || path.startsWith('modal');
+      try {
+        const r = await plain(input, init);
+        if (mine && r.status >= 500) report('api', {message: 'HTTP ' + r.status + ' ' + path.split('?')[0], status: r.status});
+        return r;
+      } catch (err) {
+        if (mine && err?.name !== 'AbortError') report('api', {message: 'لا يوجد رد · ' + path.split('?')[0] + ' · ' + (err?.message || ''), code: navigator.onLine === false ? 'offline' : ''});
+        throw err;
+      }
+    };
+    watched.madarWatched = true; window.fetch = watched;
+  }
   addEventListener('unhandledrejection', e => {
     const r = e.reason; if (r?.name === 'AbortError') return;
     report('rejection', {message: r?.message || String(r)});

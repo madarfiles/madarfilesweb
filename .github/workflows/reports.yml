@@ -1,0 +1,38 @@
+name: Read error reports
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: How many days back
+        default: '7'
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch kept reports
+        env:
+          DAYS: ${{ github.event.inputs.days || '7' }}
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=madarfiles-reports" | python3 -c 'import sys,json;print(json.load(sys.stdin)["value"])')
+          echo "::add-mask::$TOKEN"
+          curl -sS -f -H "Authorization: Bearer $TOKEN" "https://madarfiles.com/api/report/list?days=$DAYS" -o reports.json
+          python3 - <<'PY'
+          import json, collections
+          r = json.load(open('reports.json'))['reports']
+          print(f'{len(r)} reports')
+          kinds = collections.Counter((x.get('kind'), x.get('tool'), (x.get('message') or '')[:90]) for x in r)
+          print('--- most common ---')
+          for (k, t, m), n in kinds.most_common(40):
+              print(f'{n:4}  {k:9} {t or "-":14} {m}')
+          print('--- newest 60 in full ---')
+          for x in r[:60]:
+              print(json.dumps(x, ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: reports.json
+          retention-days: 7
