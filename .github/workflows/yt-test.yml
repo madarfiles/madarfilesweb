@@ -22,6 +22,9 @@ jobs:
         run: |
           curl -sL -o pot https://github.com/jim60105/bgutil-ytdlp-pot-provider-rs/releases/latest/download/bgutil-pot-linux-x86_64 && chmod +x pot && file pot
           (./pot server --port 4416 > pot.log 2>&1 &) ; sleep 5; curl -s http://127.0.0.1:4416/ping; echo; tail -5 pot.log
-      - name: With provider
+      - name: Clients with provider
         continue-on-error: true
-        run: yt-dlp -v --js-runtimes node -f "b[height<=360]" -o b.mp4 https://www.youtube.com/watch?v=jNQXAC9IVRw 2>&1 | grep -i "pot\|error\|bot\|Destination\|100%" | tail -25; ls -la *.mp4 || true
+        run: |
+          for c in mweb web web_safari android_vr tv tv_embedded web_embedded ios android; do
+            echo "== $c"; yt-dlp --js-runtimes node --extractor-args "youtube:player_client=$c" -f "b[height<=360]/b" --simulate --print "OK %(format_id)s" https://www.youtube.com/watch?v=jNQXAC9IVRw 2>&1 | grep -v "^WARNING" | tail -2
+          done
