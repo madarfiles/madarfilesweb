@@ -10,6 +10,13 @@ MODEL = 'UVR-MDX-NET-Voc_FT.onnx'
 # Voc_FT left the voice clearly audible in its instrumental (+12.4 dB during speech) while the
 # instrumental-trained Inst_HQ_4 left almost none (+2.3 dB), so dubbing uses Inst_HQ_4.
 DUB_MODEL = 'UVR-MDX-NET-Inst_HQ_4.onnx'
+# The visitor's optional precise model (BS-RoFormer, viperx): better on wind instruments, flutes
+# and keyboards the fast model keeps, and slower. It runs on PyTorch, not ONNX Runtime.
+PRECISE_MODEL = 'model_bs_roformer_ep_317_sdr_12.9755.ckpt'
+MODELS = {'fast': MODEL, 'precise': PRECISE_MODEL}
+# Same settings as the site's precise engine (measured: overlap 2 is ~1.5x faster than 4).
+PRECISE_PARAMS = {'segment_size':256, 'override_model_segment_size':False, 'batch_size':1, 'overlap':2, 'pitch_shift':0}
+PRECISE_EXTRA = {'use_autocast': True}
 ROOT = Path('/content/madar_separation')
 CACHE = Path('/content/madar_models')
 CHUNK_SECONDS = 300
@@ -272,10 +279,17 @@ def session_from_separator(separator):
 
 def new_separator(output_dir, single_stem='Vocals', model=None):
     from audio_separator.separator import Separator
+    model = model or MODEL
     obj = Separator(output_dir=str(output_dir), model_file_dir=str(CACHE), output_format='WAV', output_single_stem=single_stem, use_soundfile=True,
-                    log_level=logging.WARNING, mdx_params={'hop_length':1024, 'segment_size':256, 'overlap':0.25, 'batch_size':1, 'enable_denoise':False})
-    obj.load_model(model_filename=model or MODEL)
-    session_from_separator(obj)
+                    log_level=logging.WARNING, mdx_params={'hop_length':1024, 'segment_size':256, 'overlap':0.25, 'batch_size':1, 'enable_denoise':False},
+                    mdxc_params=PRECISE_PARAMS, **PRECISE_EXTRA)
+    obj.load_model(model_filename=model)
+    if model.endswith('.ckpt'):
+        import torch
+        if not torch.cuda.is_available():
+            raise RuntimeError('لم يتفعّل CUDA فعليًا؛ لا توجد عودة إلى CPU في هذا الدفتر')
+    else:
+        session_from_separator(obj)
     return obj
 
 
@@ -315,19 +329,21 @@ def source_fingerprint(path, start, duration, mode):
     return digest.hexdigest()[:24]
 
 
-def run_separation(source, start=0, duration=0, mode='audio', output_format=None):
+def run_separation(source, start=0, duration=0, mode='audio', output_format=None, model='fast'):
     source = Path(source).resolve()
     if not source.is_file() or source.stat().st_size == 0:
         raise ValueError('المصدر غير موجود أو فارغ')
     if mode not in {'audio','video'}:
         raise ValueError('نوع الناتج غير صالح')
+    if model not in MODELS:
+        raise ValueError('نموذج الفصل غير معروف')
     if output_format is not None and output_format not in (VIDEO_FORMATS if mode=='video' else AUDIO_FORMATS):
         raise ValueError('صيغة الناتج لا تطابق نوع الملف')
     plan = chunk_plan(duration_of(source), start, duration)
     length = sum(seconds for _,seconds in plan)
     if shutil.disk_usage(ROOT).free < 2*1024**3:
         raise RuntimeError('مساحة Colab المتبقية أقل من 2 GB')
-    work = ROOT/source_fingerprint(source,start,duration,mode)
+    work = ROOT/source_fingerprint(source,start,duration,mode+('' if model=='fast' else '-'+model))
     work.mkdir(exist_ok=True)
     manifest = work/'checkpoint.json'
     try:
@@ -336,7 +352,9 @@ def run_separation(source, start=0, duration=0, mode='audio', output_format=None
         completed = {}
     print('عدد الأجزاء:',len(plan),'· مدة المصدر المختارة:',round(length,1),'ثانية')
     print('الأجزاء المكتملة تُحفظ داخل هذه الجلسة لاستكمالها إذا أعدت تشغيل خلية الفصل بنفس المصدر والإعدادات.')
-    separator = new_separator(work)
+    separator = new_separator(work, model=MODELS[model])
+    if model != 'fast':
+        print('النموذج الدقيق · RoFormer',flush=True)
     voices = []
     measured = 0.0
     measured_count = 0

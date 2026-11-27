@@ -27,7 +27,7 @@ test('assistant: music removal asks video or audio for a video, runs straight fo
   const v = understand('شيل الموسيقى', [video]);
   assert.equal(v.type, 'ask');
   assert.deepEqual(v.options.map(o => o.plan.opts.mode), ['video', 'audio']);
-  assert.deepEqual(understand('ازل الموسيقى', [audio]), {type: 'run', tool: 'separate', opts: {mode: 'audio'}, title: 'إزالة الموسيقى'});
+  assert.deepEqual(understand('ازل الموسيقى', [audio]), {type: 'run', tool: 'separate', opts: {mode: 'audio', model: 'fast'}, title: 'إزالة الموسيقى'});
   const need = understand('شيل الموسيقى', [image]);
   assert.equal(need.type, 'need');
   assert.deepEqual(need.kinds, ['video', 'audio']);

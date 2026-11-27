@@ -236,3 +236,8 @@ footer #limitsBtn{white-space:nowrap;flex:none}
 /* video previews: keep browser overlay buttons (pop-up player etc.) off the save button */
 .result-preview-box video{margin-bottom:10px}
 #colabConnect.is-connected{background:#e4efe6;color:#1f4d3a;border:1px solid #b9d6c1}
+.model-pick{border:0;margin:14px 0 4px;padding:0;display:grid;gap:8px}.model-pick legend{font-size:12px;color:#5c7351;margin-bottom:8px;padding:0}
+.model-card{display:flex;gap:10px;align-items:flex-start;padding:11px 13px;border:1px solid #dce1d0;border-radius:12px;background:#fbfaf5;cursor:pointer;transition:border-color .15s,background .15s}
+.model-card.chosen{border-color:#5c7351;background:#eef2e5}.model-card input,.gate-option input{margin-top:4px;flex-shrink:0;accent-color:#3f5a3a}
+.model-card span,.gate-option span{display:grid;gap:3px}.model-card b,.gate-option b{font-size:13px;font-weight:600;color:#283c3b}.model-card small,.gate-option small{font-size:11px;line-height:1.8;color:#6b7565}
+.gate-option{display:flex;gap:10px;align-items:flex-start;padding:4px 13px 2px;cursor:pointer}.gate-option[hidden]{display:none}

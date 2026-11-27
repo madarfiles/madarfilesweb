@@ -63,12 +63,14 @@ export function understand(text, files = [], size = 0) {
 
   if (/موسيق|اغاني|اغنيه|المعازف|فصل الصوت|افصل/.test(t)) {
     if (!media) return need(['video', 'audio'], 'أرفق الفيديو أو الصوت اللي تبي تشيل منه الموسيقى', text);
+    // The fast model unless the visitor asks for precision.
+    const model = /بدق|دقيق|الدقيق|القوي|اقوي|افضل جوده|اعلي جوده|roformer/.test(t) ? 'precise' : 'fast';
     if (has('video') && !/صوت فقط|الصوت بس|صوت بس/.test(t))
       return ask('تبي النتيجة فيديو بدون موسيقى، ولا الصوت بس؟', [
-        { label: '🎬 فيديو بدون موسيقى', plan: run('separate', { mode: 'video' }, 'إزالة الموسيقى') },
-        { label: '🎧 الصوت بس', plan: run('separate', { mode: 'audio' }, 'إزالة الموسيقى') },
+        { label: '🎬 فيديو بدون موسيقى', plan: run('separate', { mode: 'video', model }, 'إزالة الموسيقى') },
+        { label: '🎧 الصوت بس', plan: run('separate', { mode: 'audio', model }, 'إزالة الموسيقى') },
       ]);
-    return run('separate', { mode: 'audio' }, 'إزالة الموسيقى');
+    return run('separate', { mode: 'audio', model }, 'إزالة الموسيقى');
   }
 
   if (/ترجم/.test(t) && has('text')) return run('cloudtranslate', { fields: { target: 'ar' } }, 'ترجمة النص');

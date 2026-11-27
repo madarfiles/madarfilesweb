@@ -199,7 +199,7 @@ def main():
                     return [target]
                 output = runtime.run_dub_stems(source, extra=dub_lines)
             else:
-                output = runtime.run_separation(source, cfg['start'], cfg['duration'], cfg['mode'], **({'output_format':cfg['outputFormat']} if cfg.get('outputFormat') else {}))
+                output = runtime.run_separation(source, cfg['start'], cfg['duration'], cfg['mode'], **({'output_format':cfg['outputFormat']} if cfg.get('outputFormat') else {}), **({'model':cfg['model']} if cfg.get('model') else {}))
             sys.stdout = sys.__stdout__
         if output.stat().st_size<1:raise ValueError('لم تنتج الأداة ملفًا صالحًا')
         if output.stat().st_size > 256*1024**2:
