@@ -18,6 +18,14 @@ import modal
 SITE = 'https://madarfiles.netlify.app'  # server-to-server ticket checks (works under any domain)
 ORIGINS = ['https://madarfiles.com', 'https://www.madarfiles.com', 'https://madarfiles.netlify.app']
 MODEL = 'UVR-MDX-NET-Voc_FT.onnx'  # same model as the Colab tool, so results match
+# The visitor's optional precise model: BS-RoFormer (viperx, SDR 12.97 on vocals). Much better on
+# instruments the fast model keeps (wind, flutes, keyboards), slower, so it has a shorter limit.
+STRONG = 'model_bs_roformer_ep_317_sdr_12.9755.ckpt'
+STRONG_MAX_SECONDS = 20 * 60
+# Measured on an L4 with 5 minutes of audio: overlap 2 → 84 s, overlap 4 → 129 s, 1.7 GB of GPU
+# memory. Overlap 2 with half precision keeps it about twice the fast model's time.
+MDXC_PARAMS = {'segment_size': 256, 'override_model_segment_size': False, 'batch_size': 1, 'overlap': 2, 'pitch_shift': 0}
+STRONG_EXTRA = {'use_autocast': True}
 MODELS = '/models'
 MAX_BYTES = 150 * 1024 * 1024
 MAX_SECONDS = 60 * 60
@@ -38,14 +46,15 @@ started = modal.Dict.from_name('madar-fast-started', create_if_missing=True)
 
 
 def _fetch_model():
-    """Bakes the model file into the image so a cold container never downloads it."""
+    """Bakes both model files into the image so a cold container never downloads them."""
     from audio_separator.separator import Separator
-    try:
-        Separator(model_file_dir=MODELS, output_dir='/tmp').load_model(model_filename=MODEL)
-    except Exception as error:  # no GPU while building; only the downloaded file matters
-        print('model load on the build machine:', error)
-    if not any(Path(MODELS).glob(MODEL)):
-        raise RuntimeError('model file was not downloaded')
+    for name in (MODEL, STRONG):
+        try:
+            Separator(model_file_dir=MODELS, output_dir='/tmp').load_model(model_filename=name)
+        except Exception as error:  # no GPU while building; only the downloaded file matters
+            print('model load on the build machine:', name, error)
+        if not any(Path(MODELS).glob(name)):
+            raise RuntimeError('model file was not downloaded: ' + name)
 
 
 gpu_image = (
@@ -71,6 +80,39 @@ def _seconds(path):
         return 0.0
 
 
+def _separate(separator, out_dir, data, ext, out, max_seconds):
+    if ext not in IN_EXTS or out not in OUT:
+        raise ValueError('BAD_FORMAT')
+    try:
+        started.put(modal.current_function_call_id(), True)
+    except Exception:
+        pass
+    work = Path(tempfile.mkdtemp(prefix='madar-'))
+    try:
+        source = work / ('in.' + ext)
+        source.write_bytes(data)
+        seconds = _seconds(source)
+        if seconds > max_seconds:
+            raise ValueError('TOO_LONG')
+        raw = work / 'in.wav'
+        _ffmpeg('-i', source, '-map', '0:a:0', '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', raw)
+        for old in out_dir.iterdir():
+            old.unlink(missing_ok=True)
+        names = separator.separate(str(raw), custom_output_names={'Vocals': 'voice'})
+        if not names:
+            raise RuntimeError('NO_OUTPUT')
+        voice = Path(names[0])
+        if not voice.is_absolute():
+            voice = out_dir / voice
+        args, _ = OUT[out]
+        result = work / 'result.bin'
+        _ffmpeg('-i', voice, '-map_metadata', '-1', *args, result)
+        voice.unlink(missing_ok=True)
+        return result.read_bytes()
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
 @app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1800, scaledown_window=60, max_containers=2)
 class MusicRemover:
     @modal.enter()
@@ -88,36 +130,24 @@ class MusicRemover:
 
     @modal.method()
     def run(self, data: bytes, ext: str, out: str) -> bytes:
-        if ext not in IN_EXTS or out not in OUT:
-            raise ValueError('BAD_FORMAT')
-        try:
-            started.put(modal.current_function_call_id(), True)
-        except Exception:
-            pass
-        work = Path(tempfile.mkdtemp(prefix='madar-'))
-        try:
-            source = work / ('in.' + ext)
-            source.write_bytes(data)
-            seconds = _seconds(source)
-            if seconds > MAX_SECONDS:
-                raise ValueError('TOO_LONG')
-            raw = work / 'in.wav'
-            _ffmpeg('-i', source, '-map', '0:a:0', '-vn', '-ac', '2', '-ar', '44100', '-c:a', 'pcm_s16le', raw)
-            for old in self.out_dir.iterdir():
-                old.unlink(missing_ok=True)
-            names = self.separator.separate(str(raw), custom_output_names={'Vocals': 'voice'})
-            if not names:
-                raise RuntimeError('NO_OUTPUT')
-            voice = Path(names[0])
-            if not voice.is_absolute():
-                voice = self.out_dir / voice
-            args, _ = OUT[out]
-            result = work / 'result.bin'
-            _ffmpeg('-i', voice, '-map_metadata', '-1', *args, result)
-            voice.unlink(missing_ok=True)
-            return result.read_bytes()
-        finally:
-            shutil.rmtree(work, ignore_errors=True)
+        return _separate(self.separator, self.out_dir, data, ext, out, MAX_SECONDS)
+
+
+@app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1800, scaledown_window=60, max_containers=2)
+class PreciseRemover:
+    @modal.enter()
+    def load(self):
+        import logging
+        from audio_separator.separator import Separator
+        self.out_dir = Path('/tmp/madar-out-precise')
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.separator = Separator(output_dir=str(self.out_dir), model_file_dir=MODELS, output_format='WAV', output_single_stem='Vocals', use_soundfile=True,
+                                   log_level=logging.WARNING, mdxc_params=MDXC_PARAMS, **STRONG_EXTRA)
+        self.separator.load_model(model_filename=STRONG)
+
+    @modal.method()
+    def run(self, data: bytes, ext: str, out: str) -> bytes:
+        return _separate(self.separator, self.out_dir, data, ext, out, STRONG_MAX_SECONDS)
 
 
 @app.function(image=web_image, timeout=300, max_containers=1)
@@ -130,7 +160,7 @@ def web():
     from fastapi.responses import JSONResponse, Response
 
     api = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    api.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=['GET', 'POST'], allow_headers=['Content-Type', 'X-Madar-Ticket', 'X-Madar-Ext', 'X-Madar-Out'], max_age=600)
+    api.add_middleware(CORSMiddleware, allow_origins=ORIGINS, allow_methods=['GET', 'POST'], allow_headers=['Content-Type', 'X-Madar-Ticket', 'X-Madar-Ext', 'X-Madar-Out', 'X-Madar-Model'], max_age=600)
     not_ready = tuple(e for e in (TimeoutError, getattr(modal.exception, 'TimeoutError', None)) if e)
 
     def refuse(code, status):
@@ -138,14 +168,15 @@ def web():
 
     @api.get('/health')
     async def health():
-        return {'ok': True, 'model': MODEL}
+        return {'ok': True, 'model': MODEL, 'precise': STRONG}
 
     @api.post('/submit')
     async def submit(request: Request):
         ticket = request.headers.get('x-madar-ticket', '')
         ext = request.headers.get('x-madar-ext', '').lower()
         out = request.headers.get('x-madar-out', 'm4a').lower()
-        if not re.fullmatch(r'[a-f0-9]{48}', ticket) or ext not in IN_EXTS or out not in OUT:
+        model = request.headers.get('x-madar-model', 'fast').lower()
+        if not re.fullmatch(r'[a-f0-9]{48}', ticket) or ext not in IN_EXTS or out not in OUT or model not in ('fast', 'precise'):
             return refuse('BAD_REQUEST', 400)
         if int(request.headers.get('content-length') or 0) > MAX_BYTES:
             return refuse('TOO_LARGE', 413)
@@ -161,7 +192,8 @@ def web():
             allowed = False
         if not allowed:
             return refuse('TICKET', 403)
-        call = await MusicRemover().run.spawn.aio(body, ext, out)
+        worker = PreciseRemover() if model == 'precise' else MusicRemover()
+        call = await worker.run.spawn.aio(body, ext, out)
         return {'id': call.object_id}
 
     @api.get('/result/{call_id}')

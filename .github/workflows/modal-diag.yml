@@ -11,7 +11,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - run: python -m pip install -q modal==1.6.4 && sudo apt-get install -y -qq ffmpeg >/dev/null
+      - run: python -m pip install -q modal==1.6.4 && (sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg) >/dev/null
       - name: Token
         run: |
           ALL="$RAW_ID $RAW_SECRET"
@@ -31,13 +31,13 @@ jobs:
         run: |
           ffmpeg -v error -f lavfi -i "sine=f=220:d=75" -f lavfi -i "anoisesrc=d=75:a=0.05" -filter_complex amix=inputs=2 -c:a aac -b:a 128k test.m4a
           ls -l test.m4a
-          for n in 1 2; do
+          for n in fast precise; do
             T=$(curl -sS -X POST https://madarfiles.netlify.app/api/fast/ticket -H 'Origin: https://madarfiles.netlify.app' -H 'Content-Type: application/json' -d '{"tool":"separate"}')
             echo "ticket reply: $(echo "$T" | sed 's/"ticket":"[a-f0-9]*"/"ticket":"…"/')"
             TK=$(echo "$T" | python -c 'import sys,json;print(json.load(sys.stdin).get("ticket",""))')
             [ -z "$TK" ] && exit 1
             S=$(date +%s)
-            ID=$(curl -sS -X POST https://madarfiles-app--madar-fast.modal.run/submit -H "X-Madar-Ticket: $TK" -H 'X-Madar-Ext: m4a' -H 'X-Madar-Out: m4a' -H 'Origin: https://madarfiles.netlify.app' --data-binary @test.m4a)
+            ID=$(curl -sS -X POST https://madarfiles-app--madar-fast.modal.run/submit -H "X-Madar-Ticket: $TK" -H 'X-Madar-Ext: m4a' -H 'X-Madar-Out: m4a' -H "X-Madar-Model: $n" -H 'Origin: https://madarfiles.netlify.app' --data-binary @test.m4a)
             echo "submit: $ID"
             CID=$(echo "$ID" | python -c 'import sys,json;print(json.load(sys.stdin).get("id",""))')
             for i in $(seq 1 120); do
