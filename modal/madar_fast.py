@@ -113,7 +113,9 @@ def _separate(separator, out_dir, data, ext, out, max_seconds):
         shutil.rmtree(work, ignore_errors=True)
 
 
-@app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1800, scaledown_window=60, max_containers=2)
+# Cards in order of value for this work (L4, then the cheaper T4, then A10G); an idle card is let
+# go after 15 s, since Modal bills the time a card waits for the next job too.
+@app.cls(image=gpu_image, gpu=['L4', 'T4', 'A10G'], timeout=1800, scaledown_window=15, max_containers=2)
 class MusicRemover:
     @modal.enter()
     def load(self):
@@ -133,7 +135,7 @@ class MusicRemover:
         return _separate(self.separator, self.out_dir, data, ext, out, MAX_SECONDS)
 
 
-@app.cls(image=gpu_image, gpu=['L4', 'A10G', 'T4'], timeout=1800, scaledown_window=60, max_containers=2)
+@app.cls(image=gpu_image, gpu=['L4', 'T4', 'A10G'], timeout=1800, scaledown_window=15, max_containers=2)
 class PreciseRemover:
     @modal.enter()
     def load(self):
