@@ -77,3 +77,29 @@ export async function separateOnDevice(left, right, {signal, onChunk} = {}) {
     onChunk?.(done, total, per);
   }});
 }
+
+// Frees the model and the graphics memory it holds, so a phone that moves on to the quick
+// engine (or Colab) starts with room to spare. The next on-device run loads it again from the
+// saved copy in a few seconds.
+export async function releaseSeparator() {
+  const pending = session; session = null;
+  if (!pending) return;
+  try { const {s} = await pending; await s.release?.(); } catch {}
+}
+
+// A phone browser may close the page outright when it runs short of memory (Safari does this
+// without any message). A mark is kept while the device works; finding it on the next run means
+// the page died, so that device goes straight to the quick engine from then on.
+const RUN_KEY = 'madar-device-running';
+export function markRunning(info, store = globalThis.localStorage) { try { store?.setItem(RUN_KEY, JSON.stringify({...info, at: Date.now()})); } catch {} }
+export function clearRunning(store = globalThis.localStorage) { try { store?.removeItem(RUN_KEY); } catch {} }
+export function takeCrash(store = globalThis.localStorage, now = Date.now()) {
+  try {
+    const raw = store?.getItem(RUN_KEY); if (!raw) return null;
+    store.removeItem(RUN_KEY);
+    const info = JSON.parse(raw);
+    return info && now - Number(info.at || 0) < 6 * 3600e3 ? info : null;
+  } catch { return null; }
+}
+// Closing the page on purpose is not a crash.
+try { globalThis.addEventListener?.('pagehide', () => clearRunning()); } catch {}

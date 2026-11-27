@@ -49,11 +49,11 @@ def javascript_runtime(root,report):
 
 def download_error(exc):
  text=str(exc).lower()
- if any(x in text for x in ['not a bot','confirm you’re','confirm you are','sign in to confirm']):return 'المنصة تطلب تحققًا من اتصال Colab؛ المقطع ليس بالضرورة خاصًا. جرّب التحميل من تطبيق مدار على جهازك · PLATFORM_VERIFICATION'
+ if any(x in text for x in ['not a bot','confirm you’re','confirm you are','sign in to confirm']):return 'المنصة طلبت تحققًا إن الطلب مو آلي؛ جرّب بعد شوي · PLATFORM_VERIFICATION'
  if any(x in text for x in ['private video','login required','log in','cookies are needed']):return 'هذا الرابط يحتاج تسجيل دخول إلى المنصة · LOGIN_REQUIRED'
  if 'drm' in text:return 'المقطع محمي بـ DRM ولا يمكن تنزيله بهذه الأداة · DRM'
  if any(x in text for x in ['javascript','js runtime','challenge','ejs']):return 'تعذر محرك JavaScript الخاص بالمنصة؛ أعد المحاولة في الجلسة نفسها · JS_CHALLENGE'
- if any(x in text for x in ['403','429','too many requests','forbidden']):return 'رفضت المنصة اتصال الخادم أو حدّت طلباته؛ أعد لاحقًا أو استخدم تطبيق مدار · PLATFORM_NETWORK'
+ if any(x in text for x in ['403','429','too many requests','forbidden']):return 'رفضت المنصة اتصال الخادم أو حدّت طلباته؛ أعد المحاولة بعد شوي · PLATFORM_NETWORK'
  if any(x in text for x in ['timed out','timeout','network','connection']):return 'تعطل الاتصال بالمنصة؛ أعد المحاولة والجلسة محفوظة · DOWNLOAD_NETWORK'
  if any(x in text for x in ['unsupported','extract','no video formats']):return 'لم يستطع محرك الروابط قراءة هذا المقطع أو صِيغه · EXTRACTOR_FAILED'
  return 'تعذر تنزيل هذا المقطع؛ الجلسة محفوظة ويمكن تجربة رابط آخر · DOWNLOAD_FAILED'
@@ -137,6 +137,9 @@ def download_clip(config, root, report):
             except Exception as exc:
                 reason=download_error(exc)
                 retry=any(code in reason for code in ('PLATFORM_VERIFICATION','PLATFORM_NETWORK','EXTRACTOR_FAILED','JS_CHALLENGE','DOWNLOAD_NETWORK','DOWNLOAD_FAILED'))
+                # YouTube's bot check is about the server's address, not the client used (tested
+                # with every client and a PO token): other clients on this machine won't pass.
+                if youtube and 'PLATFORM_VERIFICATION' in reason: raise ValueError(reason) from exc
                 if n+1<len(attempts) and retry:
                     report('setup',f'المنصة ما ردّت من أول مرة؛ نجرب طريقة ثانية ({n+2}/{len(attempts)})…');time.sleep(2);continue
                 raise ValueError(reason) from exc

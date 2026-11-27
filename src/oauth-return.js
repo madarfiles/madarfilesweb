@@ -9,5 +9,5 @@ if(params.get('error'))show(params.get('error')==='access_denied'?'ما اكتم
 else if(!saved||saved.state!==params.get('state')||Date.now()-saved.at>15*60000||!token)show('انتهت مهلة الاتصال أو الرابط غير صحيح. ارجع وجرّب مرة ثانية.');
 else if(!scopes.includes('https://www.googleapis.com/auth/colaboratory'))show('لازم توافق على صلاحية Colab عشان تشتغل الأدوات السحابية. ارجع وجرّب مرة ثانية.');
 else{const expires=Date.now()+Math.max(0,(Number(params.get('expires_in'))||3600)-60)*1000;
- try{sessionStorage.setItem('madar-google-token',JSON.stringify({token,expires,drive:scopes.includes('https://www.googleapis.com/auth/drive.appdata')}));sessionStorage.setItem('madar-oauth-returned','1');}catch{}
+ try{sessionStorage.setItem('madar-google-token',JSON.stringify({token,expires,drive:scopes.includes('https://www.googleapis.com/auth/drive.appdata')}));sessionStorage.setItem('madar-oauth-returned','1');try{localStorage.setItem('madar-google-known','1');}catch{}}catch{}
  location.replace('/?resume=1');}

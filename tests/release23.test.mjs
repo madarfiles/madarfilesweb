@@ -105,7 +105,7 @@ test('search: public pages are indexable, technical files are not, sitemap/robot
   assert.match(headers, /\/oauth-return\.html\n  X-Robots-Tag: noindex, nofollow/);
   const html = readFileSync('src/index.html', 'utf8');
   assert.match(html, /<link rel="canonical" href="https:\/\/madarfiles\.com\/">/);
-  assert.match(html, /property="og:image" content="https:\/\/madarfiles\.com\/og-image\.jpg"/);
+  assert.match(html, /property="og:image" content="https:\/\/madarfiles\.com\/og-image\.jpg(\?v=\d+)?"/);
   const ld = JSON.parse(html.match(/<script type="application\/ld\+json">([^<]+)<\/script>/)[1]);
   assert.equal(ld['@graph'][1]['@type'], 'WebApplication');
   assert.match(readFileSync('src/robots.txt', 'utf8'), /Sitemap: https:\/\/madarfiles\.com\/sitemap\.xml/);
