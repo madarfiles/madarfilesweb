@@ -60,15 +60,29 @@ export function mergeLines(a,b){
  return merged;
 }
 
-// «قسّم هنا»: cut a line before word i. Each half keeps its words and times; a translation
-// cannot be cut by word, so both halves show the original text. Recordings are dropped.
-export function splitLine(seg,i){
+// «قسّم هنا»: cut a line before word i. Each half keeps its words and times; a translation is
+// cut at word trAt (the word tapped in the Arabic line), or where it lines up best with the cut
+// in the original. A one-word translation cannot be cut, so both halves then show the original.
+// Recordings are dropped.
+export function splitLine(seg,i,trAt){
  const words=seg.words||[];if(!(i>0&&i<words.length))return null;
  const left=words.slice(0,i),right=words.slice(i),text=ws=>ws.map(w=>w.w).join(' ');
  const cut=Math.max(left[left.length-1].e,Math.min(right[0].s,(left[left.length-1].e+right[0].s)/2));
  const a={start:seg.start,end:Math.max(seg.start+0.2,cut),text:text(left),words:left},b={start:cut,end:Math.max(cut+0.2,seg.end),text:text(right),words:right};
+ const tw=String(seg.tr||'').split(/\s+/).filter(Boolean);
+ if(tw.length>1){let j=Number(trAt);if(!(j>0&&j<tw.length))j=Math.min(tw.length-1,Math.max(1,Math.round(tw.length*text(left).length/Math.max(1,text(words).length))));a.tr=tw.slice(0,j).join(' ');b.tr=tw.slice(j).join(' ');}
  if(seg.spk){a.spk=seg.spk;b.spk=seg.spk;}
  return [a,b];
+}
+// The original word to cut before when the visitor taps translation word j (the last word they
+// want in the first part): the word boundary closest to the same share of the sentence.
+export function originalCutForTranslation(seg,j){
+ const words=seg.words||[],tw=String(seg.tr||'').split(/\s+/).filter(Boolean);
+ if(words.length<2||tw.length<2||!(j>=0&&j<tw.length-1))return 0;
+ const share=tw.slice(0,j+1).join(' ').length/Math.max(1,tw.join(' ').length),total=words.map(w=>w.w).join(' ').length;
+ let best=0,bestGap=Infinity,run=0;
+ for(let i=1;i<words.length;i++){run+=(i>1?1:0)+words[i-1].w.length;if(words[i].k==='pause'&&i<words.length-1)continue;const gap=Math.abs(run/Math.max(1,total)-share);if(gap<bestGap){bestGap=gap;best=i;}}
+ return best;
 }
 export const SPEAKER_COLORS=['#4fc3f7','#ffb74d','#81c784','#f06292','#ba68c8','#fff176','#4db6ac','#e57373'];
 export const speakerColor=n=>n?SPEAKER_COLORS[(n-1)%SPEAKER_COLORS.length]:'#9aa0a6';

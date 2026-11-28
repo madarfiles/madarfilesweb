@@ -103,10 +103,10 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
  copyLog.onclick=async()=>{const text=['مدار — '+(q('h3')?.textContent||toolKey)+' · '+new Date().toISOString(),navigator.userAgent,...[...allocationLog.children].map(li=>li.textContent)].join('\n');try{await navigator.clipboard.writeText(text);copyLog.textContent='تم النسخ ✓';setTimeout(()=>copyLog.textContent='نسخ التفاصيل',2500);}catch{const area=document.createElement('textarea');area.value=text;area.readOnly=true;area.className='transcript-output';copyLog.replaceWith(area);area.select();}};
  support.append(supportTitle,allocationLog,copyLog);q('#colabResult').after(support);let previousAllocation='',runStart=0;const secs=ms=>(ms/1000).toFixed(1)+'s';const sizeMB=n=>(n/1048576).toFixed(2)+' MB';const speed=(n,ms)=>ms>0?(n/1048576/(ms/1000)).toFixed(2)+' MB/s':'—';
  // Which separation model the visitor picked (remembered on this device).
- const MODEL_KEY='madar-sep-model',PRECISE_MAX_SECONDS=20*60;
+ const MODEL_KEY='madar-sep-model',MODAL_MAX_SECONDS=15*60;
  const modelPick=q('#colabModelPick');
  const chosenModel=()=>toolKey==='separate'&&!downloadMode&&!taskSpec&&q('input[name="colabModel"]:checked')?.value==='precise'?'precise':'fast';
- const MODEL_NOTES={fast:'السريع: ممتاز في أغلب المقاطع وسريع. أضعف شوي مع الآلات اللي تمد النغمة، مثل النفخ والناي والكمان والكيبورد.',precise:'الدقيق: دقيق في كل الأنواع ويشيل حتى الآلات الصعبة، بس ياخذ تقريبًا ضعف الوقت. حتى 20 دقيقة.'};
+ const MODEL_NOTES={fast:'السريع: ممتاز في أغلب المقاطع وسريع. أضعف شوي مع الآلات اللي تمد النغمة، مثل النفخ والناي والكمان والكيبورد.',precise:'الدقيق: دقيق في كل الأنواع ويشيل حتى الآلات الصعبة، بس ياخذ تقريبًا ضعف الوقت.'};
  const syncModel=()=>{for(const c of content.querySelectorAll('.model-card'))c.classList.toggle('chosen',!!c.querySelector('input')?.checked);const n=q('#colabModelNote');if(n)n.textContent=MODEL_NOTES[chosenModel()];};
  const setModel=(value,save)=>{const r=q('input[name="colabModel"][value="'+(value==='precise'?'precise':'fast')+'"]');if(r)r.checked=true;if(save)try{localStorage.setItem(MODEL_KEY,value==='precise'?'precise':'fast');}catch{}syncModel();};
  if(toolKey!=='separate'||downloadMode||taskSpec){modelPick.remove();q('#colabModelNote').remove();}
@@ -233,7 +233,7 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
  const unreadable=e=>e?.name==='NotReadableError'||/could not be read|NotReadable/i.test(String(e?.message||e));
  const unreadableError=()=>{report('unreadable',{tool:toolKey,message:'الجوال قفل الوصول للملف',log:(file?.name||'')+' · '+(file?sizeMB(file.size):'')});return Error('الجوال قفل الوصول للملف. اختره مرة ثانية واضغط ابدأ.');};
  async function readable(f){try{await f.slice(0,1).arrayBuffer();}catch(e){if(unreadable(e))throw unreadableError();}}
- async function deviceFirst(plan,signal){
+ async function deviceFirst(plan,signal,media=0){
   deviceWhy='';deviceGpu='';
   const skip=(why,log)=>{deviceWhy=why;logAllocation('الفصل في الجهاز: '+log+' · نروح للسريع');return{done:false};};
   // iPhones and iPads: tested slower than the clip itself, and Safari closes the page when memory runs short.
@@ -243,7 +243,8 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
   deviceGpu=sup.gpu||'';if(!sup.ok)return skip('غير مدعوم: '+sup.why,'غير مدعوم: '+sup.why);
   if(markedSlow())return skip('الجهاز بطيء (محفوظ من تجربة سابقة)','الجهاز بطيء (محفوظ)');
   // Some containers (mkv, say) do not report their length here; the decoded audio tells it below.
-  const media=await mediaSeconds(file);if(media>DEVICE_MAX_SECONDS)return skip('المدة '+Math.round(media)+' ث (الحد '+DEVICE_MAX_SECONDS+')','المدة '+Math.round(media)+' ث');
+  // A phone that can separate takes clips up to 10 minutes; a longer one goes to Colab directly.
+  if(media>DEVICE_MAX_SECONDS){deviceWhy='المدة '+Math.round(media)+' ث (أطول من حد الجهاز): Colab مباشرة';return{done:false,colab:true};}
   startRail([...(plan.extract?['تجهيز الصوت في جهازك']:[]),'تجهيز الأداة','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],'separate-device');const t0=performance.now();
   let audio=null,pcm=null,out=null,seconds=0;
   try{
@@ -267,7 +268,8 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
   }catch(e){
    // Free everything this attempt held before the next engine starts.
    clearRunning();pcm=null;out=null;await releaseSeparator();
-   if(signal.aborted)throw e;if(unreadable(e)){stopRail();throw unreadableError();}const why=String(e?.message||e).slice(0,160);if(why==='DEVICE_SLOW')markSlow();deviceWhy='توقف في الجهاز: '+why;
+   if(signal.aborted)throw e;if(unreadable(e)){stopRail();throw unreadableError();}
+   if(String(e?.message||'').startsWith('TOO_LONG')){stopRail();deviceWhy='المدة '+Math.round(seconds)+' ث (أطول من حد الجهاز): Colab مباشرة';message('جاري التجهيز…');return{done:false,audio,colab:true};}const why=String(e?.message||e).slice(0,160);if(why==='DEVICE_SLOW')markSlow();deviceWhy='توقف في الجهاز: '+why;
    logAllocation('الفصل في الجهاز توقف: '+why+' · نروح للسريع');stopRail();
    if(why!=='NO_AUDIO'&&!why.startsWith('TOO_LONG'))report('device',{tool:toolKey,message:why==='DEVICE_SLOW'?'الجهاز أبطأ من المقطع؛ تحوّل للسريع':'فشل الفصل في الجهاز؛ تحوّل للسريع',log:why+'\n'+deviceGpu+'\n'+[...allocationLog.children].slice(-8).map(li=>li.textContent).join('\n')});
    message('جاري التجهيز…');return{done:false,audio};
@@ -399,9 +401,12 @@ export function mountColabTool(content,{onResult,downloadMode=false,taskSpec=nul
  q('#colabRun').onclick=()=>{let quick=false;try{const r=clipRange(q('#colabRange').value,q('#colabStart').value,q('#colabDuration').value);quick=!!fastPlan(file,r.start,r.duration);}catch{}task(async signal=>{
   if(!q('#colabConsent').checked)throw Error('فعّل الموافقة على رفع الملف واستخدام رصيد Colab أولًا');message('جاري التجهيز…');if(toolKey==='separate'&&file)await readable(file);if(taskSpec){if(taskSpec.noFile||!selectedFiles.length){await startExtraTask(signal);return;}if(selectedFiles.length>5||selectedFiles.reduce((n,f)=>n+f.size,0)>512*1048576)throw Error('اختر حتى 5 ملفات بإجمالي 512 MB');if(completedFiles.size===selectedFiles.length){completedFiles.clear();batchBytes=0;}const picked=[...selectedFiles];if(picked.some(f=>!taskSpec.exts.includes(f.name.split('.').pop().toLowerCase())))throw Error('توجد صيغة غير مناسبة في المجموعة');if(/Burn$/.test(q('#cloud-operation')?.value||'')&&picked.some(f=>f.type.startsWith('audio/')||!['mp4','mkv','mov','webm','avi','mpeg'].includes(f.name.split('.').pop().toLowerCase())))throw Error('اختر فيديوهات فقط عند الكتابة على الفيديو');for(let i=0;i<picked.length;i++){if(completedFiles.has(i))continue;if(signal.aborted)throw new DOMException('Cancelled','AbortError');if(batchBytes>256*1048576)throw Error('احفظ النتائج وابدأ دفعة جديدة لتخفيف ذاكرة المتصفح');file=picked[i];captionEditor?.sync();captionEditor?.load(file);queueStatus.textContent='الملف '+(i+1)+' من '+picked.length+' · '+file.name;await startExtraTask(signal);completedFiles.add(i);}queueStatus.textContent='اكتملت '+completedFiles.size+' من '+picked.length+' ملفات.';return;}if(downloadMode){const url=downloadURL(q('#colabLink').value),info=await check(signal);let engine=q('#colabGPU').value;if(engine==='CPU'&&!info.cpu)engine=(info.specs[0]?.accelerator)||'T4';if(!job&&(!eligibleGPU(engine,info)))throw Error('المورد المختار غير مؤهل للحساب حاليًا');startRail(['تجهيز الجلسة','تجهيز الأداة','المعالجة','التنزيل']);await acquireSession(engine,signal);job.config={task:'download',url};remember(job);await runJob({runtime:job.runtime,kernel:job.kernel,...job.config},signal);await monitor(signal);return;}if(!file||!file.size||file.size>512*1048576)throw Error('اختر صوتًا أو فيديو غير فارغ حتى 512 MB');const ext=file.name.split('.').pop().toLowerCase();if(!MEDIA_INPUTS.includes(ext))throw Error('صيغة الملف غير مدعومة');const {start,duration}=clipRange(q('#colabRange').value,q('#colabStart').value,q('#colabDuration').value);
   // Quick engine first (behind the Colab connection); whatever it cannot finish goes on to Colab below.
-  let preAudio;{const plan=fastPlan(file,start,duration);if(plan){plan.model=chosenModel();logAllocation('نموذج الفصل: '+(plan.model==='precise'?'الدقيق · RoFormer':'السريع · MDX'));
-   if(plan.model==='precise'){const media=await mediaSeconds(file);if(media>PRECISE_MAX_SECONDS)throw Error('النموذج الدقيق يقبل مقاطع حتى 20 دقيقة. اختر «جزء محدد» من المقطع، أو استخدم النموذج السريع.');deviceWhy='النموذج الدقيق: على السيرفر مباشرة';}
-   else{const d=await deviceFirst(plan,signal);if(d.done)return;if(d.audio)preAudio=d.audio;}}if(plan){startRail([...(plan.extract&&!preAudio?['تجهيز الصوت في جهازك']:[]),'الرفع','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],plan.model==='precise'?'separate-precise':'separate-fast');try{let payload=file;if(plan.extract){if(preAudio){payload=preAudio;}else{message('نطلع الصوت من الفيديو في جهازك…');payload=preAudio=await extractAudio(file,p=>message('نطلع الصوت من الفيديو · '+p+'٪'));}}
+  let preAudio;{let plan=fastPlan(file,start,duration);if(plan){plan.model=chosenModel();logAllocation('نموذج الفصل: '+(plan.model==='precise'?'الدقيق · RoFormer':'السريع · MDX'));
+   // Clips longer than 15 minutes go straight to Colab; the quick engine keeps the short ones.
+   const media=await mediaSeconds(file);
+   if(media>MODAL_MAX_SECONDS){deviceWhy='المدة '+Math.round(media)+' ث (أطول من 15 دقيقة): Colab مباشرة';logAllocation('المقطع أطول من 15 دقيقة · Colab مباشرة');plan=null;}
+   else if(plan.model==='precise')deviceWhy='النموذج الدقيق: على السيرفر مباشرة';
+   else{const d=await deviceFirst(plan,signal,media);if(d.done)return;if(d.audio)preAudio=d.audio;if(d.colab){logAllocation('جهازك يفصل حتى 10 دقائق؛ المقطع أطول · Colab مباشرة');plan=null;}}}if(plan){startRail([...(plan.extract&&!preAudio?['تجهيز الصوت في جهازك']:[]),'الرفع','المعالجة','التنزيل',...(plan.mux?['تركيب الفيديو في جهازك']:[])],plan.model==='precise'?'separate-precise':'separate-fast');try{let payload=file;if(plan.extract){if(preAudio){payload=preAudio;}else{message('نطلع الصوت من الفيديو في جهازك…');payload=preAudio=await extractAudio(file,p=>message('نطلع الصوت من الفيديو · '+p+'٪'));}}
    if(payload){let blob=await fastSeparate(payload,plan.out,signal,plan.model);if(blob){await fastDeliver(blob,plan);route('انفصل في Modal'+(plan.model==='precise'?' · الدقيق':''));return;}}}
    catch(e){if(signal.aborted)throw e;if(unreadable(e))throw unreadableError();logAllocation('المسار السريع: '+String(e.message||e).slice(0,120));message('جاري التجهيز…');}
    stopRail();report('fast',{tool:toolKey,message:'تحوّل من المعالج السريع إلى Colab',log:[...allocationLog.children].slice(-12).map(li=>li.textContent).join('\n')});try{await freshGrant(8);}catch{}}}

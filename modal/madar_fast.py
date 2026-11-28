@@ -21,14 +21,14 @@ MODEL = 'UVR-MDX-NET-Voc_FT.onnx'  # same model as the Colab tool, so results ma
 # The visitor's optional precise model: BS-RoFormer (viperx, SDR 12.97 on vocals). Much better on
 # instruments the fast model keeps (wind, flutes, keyboards), slower, so it has a shorter limit.
 STRONG = 'model_bs_roformer_ep_317_sdr_12.9755.ckpt'
-STRONG_MAX_SECONDS = 20 * 60
+STRONG_MAX_SECONDS = 15 * 60  # longer clips go to Colab (the site sends them there directly)
 # Measured on an L4 with 5 minutes of audio: overlap 2 → 84 s, overlap 4 → 129 s, 1.7 GB of GPU
 # memory. Overlap 2 with half precision keeps it about twice the fast model's time.
 MDXC_PARAMS = {'segment_size': 256, 'override_model_segment_size': False, 'batch_size': 1, 'overlap': 2, 'pitch_shift': 0}
 STRONG_EXTRA = {'use_autocast': True}
 MODELS = '/models'
 MAX_BYTES = 150 * 1024 * 1024
-MAX_SECONDS = 60 * 60
+MAX_SECONDS = 15 * 60  # longer clips go to Colab (the site sends them there directly)
 IN_EXTS = {'mkv', 'mka', 'mp4', 'm4a', 'mov', 'webm', 'mp3', 'aac', 'wav', 'flac', 'ogg', 'opus', 'm4b', 'aiff', 'aif', 'wma', 'amr', 'ac3', 'eac3', 'mp2', 'alac'}
 OUT = {
     'm4a': (['-c:a', 'aac', '-b:a', '192k', '-movflags', '+faststart', '-f', 'mp4'], 'audio/mp4'),

@@ -37,3 +37,10 @@ test('a line is cut before a tapped word, both halves keep their words and the s
  assert(a.end<=b.start+0.11&&a.end>11&&b.start<11.8&&a.start===10&&b.end===14);assert.equal(splitLine(seg,0),null);assert.equal(splitLine(seg,4),null);});
 test('overlapping lines stay as they are (two characters can talk together)',async()=>{const{readLines}=await import('../src/dub-core.js');const enc=o=>new TextEncoder().encode(JSON.stringify(o));
  const r=readLines(enc({lines:[{start:5,end:7,text:'b'},{start:1,end:6,text:'a'}]}));assert.deepEqual(r.lines.map(l=>[l.start,l.end,l.text]),[[1,6,'a'],[5,7,'b']]);});
+
+test('a line can be cut from its Arabic translation; both halves keep their part of it',async()=>{const{splitLine,originalCutForTranslation}=await import('../src/dub-core.js');
+ const seg={start:0,end:4,text:'a b c d',tr:'واحد اثنين ثلاثة اربعة',words:[{w:'a',s:0,e:.5},{w:'b',s:.5,e:1},{w:'c',s:2,e:2.5},{w:'d',s:2.5,e:3}]};
+ const i=originalCutForTranslation(seg,1);assert.equal(i,2);const[a,b]=splitLine(seg,i,2);assert.deepEqual([a.text,a.tr,b.text,b.tr],['a b','واحد اثنين','c d','ثلاثة اربعة']);
+ assert.equal(originalCutForTranslation(seg,3),0);assert.deepEqual(splitLine(seg,1).map(x=>x.tr),['واحد','اثنين ثلاثة اربعة']);});
+test('dub studio records without call processing, keeps the previous take and labels undo',async()=>{const src=(await import('node:fs')).readFileSync(new URL('../src/dub.js',import.meta.url),'utf8');
+ assert.match(src,/echoCancellation:false,noiseSuppression:false,autoGainControl:false/);assert.match(src,/seg\.prevTake=\{blob:seg\.blob/);assert.match(src,/closeMic\(\)/);assert.match(src,/'↶ تراجع عن '\+last\.what/);assert.match(src,/offerSplitTr\(j\)/);});

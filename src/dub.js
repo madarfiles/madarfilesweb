@@ -3,7 +3,7 @@
 import {unzipSync} from 'fflate';
 import {mountColabTool} from './colab-tool.js';
 import {cloudCatalog} from './cloud-catalog.js';
-import {detectSegments,clock,mixArguments,recordingExt,readLines,mergeLines,splitLine,speakerColor} from './dub-core.js';
+import {detectSegments,clock,mixArguments,recordingExt,readLines,mergeLines,splitLine,originalCutForTranslation,speakerColor} from './dub-core.js';
 import {pickerAccept,requireAccepted,mountFilePicker} from './file-picker.js';
 import {sourceName} from './output-names.js';
 import {wireSave} from './save-file.js';
@@ -22,10 +22,10 @@ export function mountDub(content,{onResult}){
  <section data-step="split"><p class="dub-lead">نفصل كلام الأشخاص عن صوت المحيط… خلّ الصفحة مفتوحة.</p><p class="notice" id="dubSplitStatus" role="status"></p><div id="dubColabRun"></div></section>
  <section data-step="record"><div class="dub-card"><div class="dub-card-head"><b id="dubLineTitle"></b><button type="button" class="dub-spk" id="dubSpk" title="اضغط لتغيير الشخصية" hidden></button><span id="dubLineTime"></span></div>
   <div class="dub-stage"><video id="dubPlayer" class="dub-video" playsinline muted></video><div class="dub-count" id="dubCount" hidden></div></div><div class="dub-text" id="dubText"></div><div class="dub-cut" id="dubCut" hidden><p id="dubCutPreview"></p><div class="dub-cut-actions"><button type="button" class="button" id="dubCutDo">✂ قص هنا</button><button type="button" class="button secondary" id="dubCutNo">إلغاء</button></div></div>
-  <div class="dub-main"><button class="button secondary" id="dubHear">▶ اسمع الأصل</button><button class="button dub-rec" id="dubRec">🎙 سجّل صوتك</button><button class="button secondary" id="dubMine" hidden>▶ اسمع تسجيلك</button></div>
-  <div class="dub-dots" id="dubDots"></div><p class="micro dub-hint">💡 <b>للدمج:</b> اسحب النقطة وافلتها على النقطة اللي جنبها. <b>للقص:</b> اضغط على آخر كلمة تبيها في الجملة.</p><button type="button" class="dub-chip dub-undo" id="dubUndo" hidden>↶ تراجع عن آخر تعديل</button>
+  <div class="dub-main"><button class="button secondary" id="dubHear">▶ اسمع الأصل</button><button class="button dub-rec" id="dubRec">🎙 سجّل صوتك</button><button class="button secondary" id="dubMine" hidden>▶ اسمع تسجيلك</button><button type="button" class="button secondary" id="dubPrevTake" hidden>↶ رجّع تسجيلك السابق</button></div>
+  <div class="dub-dots" id="dubDots"></div><p class="micro dub-hint">💡 <b>للدمج:</b> اسحب النقطة وافلتها على النقطة اللي جنبها. <b>للقص:</b> اضغط على آخر كلمة تبيها في الجملة، بالعربي أو باللغة الأصلية.</p><button type="button" class="button secondary dub-undo" id="dubUndo" hidden>↶ تراجع عن آخر تعديل</button>
   <div class="dub-nav"><button class="button secondary" id="dubPrev">→ السابق</button><button class="button" id="dubNext">التالي ←</button></div>
-  <details class="cloud-settings"><summary>ضبط وقت الجملة</summary><div class="dub-fine"><button class="dub-chip" data-nudge="s-">البداية −</button><button class="dub-chip" data-nudge="s+">البداية +</button><button class="dub-chip" data-nudge="e-">النهاية −</button><button class="dub-chip" data-nudge="e+">النهاية +</button><button class="dub-chip" id="dubDelete">حذف الجملة</button><button class="dub-chip" id="dubAdd">+ جملة جديدة بعدها</button><button class="dub-chip" id="dubMerge">دمج مع الجملة التالية</button></div></details></div></section>
+  <details class="cloud-settings dub-tune"><summary>ضبط الجملة</summary><div class="dub-tune-row"><span class="dub-tune-label">بداية الجملة <b id="dubStartAt"></b></span><div class="dub-tune-pair"><button type="button" class="dub-tune-btn" data-nudge="s-">أبكر ربع ثانية</button><button type="button" class="dub-tune-btn" data-nudge="s+">أتأخر ربع ثانية</button></div></div><div class="dub-tune-row"><span class="dub-tune-label">نهاية الجملة <b id="dubEndAt"></b></span><div class="dub-tune-pair"><button type="button" class="dub-tune-btn" data-nudge="e-">أقصر ربع ثانية</button><button type="button" class="dub-tune-btn" data-nudge="e+">أطول ربع ثانية</button></div></div><div class="dub-tune-row"><span class="dub-tune-label">الجملة نفسها</span><div class="dub-tune-grid"><button type="button" class="dub-tune-btn" id="dubMerge">دمجها مع اللي بعدها</button><button type="button" class="dub-tune-btn" id="dubAdd">+ جملة جديدة بعدها</button><button type="button" class="dub-tune-btn danger" id="dubDelete">حذف الجملة</button></div></div><p class="micro dub-tune-note">أي تعديل هنا تقدر ترجّعه من زر «↶ تراجع» فوق.</p></details></div></section>
  <section data-step="export"><p class="dub-lead" id="dubSummary"></p><button class="button secondary full" id="dubPlayAll">▶ معاينة الدبلجة كاملة</button><button class="button full" id="dubExport">تصدير الفيديو المدبلج</button><div id="dubResult"></div></section>
  <p class="notice" id="dubStatus" role="status"></p><div class="inline-error" id="dubError" role="alert"></div>`;
  const q=s=>content.querySelector(s),urls=[],track=u=>(urls.push(u),u);
@@ -91,56 +91,80 @@ export function mountDub(content,{onResult}){
   const main=document.createElement('p');main.className='dub-say';
   // Tapping a word offers «قسّم هنا» (cut the line before it) when the voices were mixed up.
   const words=(into,cls)=>{const list=seg.words?.length?seg.words:[{w:seg.text,s:seg.start,e:seg.end}];list.forEach((w,i)=>{const span=document.createElement('span');span.textContent=w.w+' ';if(cls){span.dataset.s=w.s;span.dataset.e=w.e;}if(w.k)span.dataset.k=w.k;if(seg.words?.length){span.dataset.i=i;span.onclick=()=>offerSplit(i);}into.append(span);});};
-  if(seg.tr){main.textContent=seg.tr;main.dir='auto';const bar=document.createElement('div');bar.className='dub-bar';bar.append(document.createElement('i'));box.append(main,bar);const orig=document.createElement('p');orig.className='dub-orig';orig.dir='auto';words(orig,false);box.append(orig);}
+  if(seg.tr){main.dir='auto';const tw=seg.tr.split(/\s+/).filter(Boolean);tw.forEach((w,j)=>{const span=document.createElement('span');span.textContent=w+' ';span.dataset.t=j;if(seg.words?.length>1&&tw.length>1)span.onclick=()=>offerSplitTr(j);main.append(span);});const bar=document.createElement('div');bar.className='dub-bar';bar.append(document.createElement('i'));box.append(main,bar);const orig=document.createElement('p');orig.className='dub-orig';orig.dir='auto';words(orig,false);box.append(orig);}
   else{main.dir='auto';words(main,true);box.append(main);}
   paint(q('#dubPlayer').currentTime);}
- let splitAt=0;
+ let splitAt=0,splitTr=0;
  // Cutting: tap the LAST word of the first part. Both parts are shown in two colours with ✂
  // between them, and nothing changes until «قص هنا».
  function offerSplit(i){if(recorder)return;const seg=segments[line],words=seg?.words||[];const lastSpoken=words.findLastIndex(w=>!w.k);
   if(i>=lastSpoken)return status('هذي آخر كلمة في الجملة؛ اضغط على الكلمة اللي تبي الجملة الأولى تنتهي عندها.');
-  splitAt=i+1;for(const span of q('#dubText').querySelectorAll('span[data-i]'))span.dataset.cut=Number(span.dataset.i)<splitAt?'a':'b';
+  splitAt=i+1;splitTr=0;showCut();}
+ // Tapping a word of the Arabic line: the cut in the original goes where it lines up best.
+ function offerSplitTr(j){if(recorder)return;const seg=segments[line],tw=String(seg?.tr||'').split(/\s+/).filter(Boolean);
+  if(j>=tw.length-1)return status('هذي آخر كلمة في الجملة؛ اضغط على الكلمة اللي تبي الجملة الأولى تنتهي عندها.');
+  const i=originalCutForTranslation(seg,j);if(!i)return status('ما نقدر نقص هذي الجملة من النص العربي؛ جرّب من سطر اللغة الأصلية تحته.');
+  splitAt=i;splitTr=j+1;showCut();}
+ function showCut(){const seg=segments[line],words=seg.words||[];const parts=splitLine(seg,splitAt,splitTr);if(!parts){cancelCut();return;}
+  for(const span of q('#dubText').querySelectorAll('span[data-i]'))span.dataset.cut=Number(span.dataset.i)<splitAt?'a':'b';
+  const trCut=parts[0].tr?parts[0].tr.split(/\s+/).length:0;for(const span of q('#dubText').querySelectorAll('span[data-t]'))span.dataset.cut=Number(span.dataset.t)<trCut?'a':'b';
   const say=ws=>ws.filter(w=>w.k!=='pause').map(w=>w.w).join(' ');
-  q('#dubCutPreview').innerHTML='';const a=document.createElement('span'),b=document.createElement('span'),x=document.createElement('b');a.className='cut-a';b.className='cut-b';a.textContent=say(words.slice(0,splitAt));b.textContent=say(words.slice(splitAt));x.textContent=' ✂ ';
+  q('#dubCutPreview').innerHTML='';const a=document.createElement('span'),b=document.createElement('span'),x=document.createElement('b');a.className='cut-a';b.className='cut-b';a.textContent=parts[0].tr||say(words.slice(0,splitAt));b.textContent=parts[1].tr||say(words.slice(splitAt));x.textContent=' ✂ ';
   q('#dubCutPreview').append('تصير جملتين: ',a,x,b);q('#dubCut').hidden=false;}
- function cancelCut(){splitAt=0;q('#dubCut').hidden=true;for(const span of q('#dubText').querySelectorAll('span[data-cut]'))delete span.dataset.cut;}
+ function cancelCut(){splitAt=0;splitTr=0;q('#dubCut').hidden=true;for(const span of q('#dubText').querySelectorAll('span[data-cut]'))delete span.dataset.cut;}
  function paint(t){const seg=segments[line];if(!seg)return;for(const span of q('#dubText').querySelectorAll('span[data-s]')){span.className=t>=Number(span.dataset.e)?'said':t>=Number(span.dataset.s)-0.05?'now':'';}
   const bar=q('#dubText .dub-bar i');if(bar)bar.style.width=Math.max(0,Math.min(100,(t-seg.start)/Math.max(0.1,seg.end-seg.start)*100))+'%';}
  function startSync(){stopSync();const tick=()=>{paint(q('#dubPlayer').currentTime);raf=requestAnimationFrame(tick);};raf=requestAnimationFrame(tick);}
  function stopSync(){if(raf)cancelAnimationFrame(raf);raf=null;}
  // Step 4: one line at a time.
  function showLine(){
-  const seg=segments[line];if(!seg)return;q('#dubLineTitle').textContent='الجملة '+(line+1)+' من '+segments.length;const chip=q('#dubSpk');chip.hidden=!speakers;chip.textContent=seg.spk?'الشخصية '+seg.spk:'شخصية ؟';chip.style.setProperty('--spk',speakerColor(seg.spk));q('#dubCut').hidden=true;splitAt=0;q('#dubLineTime').textContent=clock(seg.start)+' – '+clock(seg.end);
-  renderText(seg);q('#dubRec').textContent=seg.blob?'🎙 أعد التسجيل':'🎙 سجّل صوتك';q('#dubMine').hidden=!seg.blob;q('#dubPrev').disabled=line===0;q('#dubNext').textContent=line===segments.length-1?'إنهاء والتصدير ←':'التالي ←';
+  const seg=segments[line];if(!seg)return;q('#dubLineTitle').textContent='الجملة '+(line+1)+' من '+segments.length;const chip=q('#dubSpk');chip.hidden=!speakers;chip.textContent=seg.spk?'الشخصية '+seg.spk:'شخصية ؟';chip.style.setProperty('--spk',speakerColor(seg.spk));q('#dubCut').hidden=true;splitAt=0;splitTr=0;q('#dubLineTime').textContent=clock(seg.start)+' – '+clock(seg.end);
+  renderText(seg);q('#dubRec').textContent=seg.blob?'🎙 أعد التسجيل':'🎙 سجّل صوتك';q('#dubMine').hidden=!seg.blob;q('#dubPrevTake').hidden=!seg.prevTake;q('#dubStartAt').textContent=clock(seg.start);q('#dubEndAt').textContent=clock(seg.end);q('#dubPrev').disabled=line===0;q('#dubNext').textContent=line===segments.length-1?'إنهاء والتصدير ←':'التالي ←';
   const v=q('#dubPlayer');if(v.readyState)v.currentTime=seg.start;else v.onloadedmetadata=()=>{v.currentTime=segments[line]?.start||0;};
   q('#dubDots').replaceChildren(...segments.map((s,i)=>{const b=document.createElement('button');b.type='button';b.className='dub-dot'+(i===line?' current':s.blob?' done':'');if(speakers)b.style.setProperty('--spk',speakerColor(s.spk));b.title='الجملة '+(i+1);b.dataset.i=i;return b;}));
   status(seg.blob?'تسجيلك جاهز. اسمعه، وإذا عجبك اضغط «التالي».':'اسمع الأصل، وبعدها سجّل الجملة بصوتك.');
  }
- q('#dubHear').onclick=()=>{if(recorder)return;const seg=segments[line];stopPlayback();const v=q('#dubPlayer');v.muted=false;v.currentTime=seg.start;v.play().catch(()=>{});startSync();playing={sources:[],timer:setTimeout(stopPlayback,(seg.end-seg.start)*1000+200)};};
+ q('#dubHear').onclick=()=>{if(recorder||countdown)return;const seg=segments[line];stopPlayback();const v=q('#dubPlayer');v.muted=false;v.currentTime=seg.start;v.play().catch(()=>{});startSync();playing={sources:[],timer:setTimeout(stopPlayback,(seg.end-seg.start)*1000+200)};};
  q('#dubMine').onclick=()=>guard(()=>{const seg=segments[line];return play(Math.max(0,seg.start-0.4),Math.max(seg.end,seg.start+seg.buffer.duration)+0.4,{only:seg});});
+ // Recording. The mic is opened without the phone's call processing (echo cancelling switches
+ // Android to call mode: narrow, rough sound and the in-call bubble), and closed after each take.
+ // The picture is muted while recording, so there is no echo to remove.
+ let countdown=null;
+ const closeMic=()=>{mic?.getTracks().forEach(t=>t.stop());mic=null;};
  q('#dubRec').onclick=async()=>{
-  if(recorder){recorder.stop();return;}const seg=segments[line];fail('');
-  try{stopPlayback();mic??=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true}});}catch{fail(Error('اسمح للمتصفح باستخدام المايكروفون'));return;}
-  q('#dubRec').disabled=true;q('#dubRec').textContent='استعد…';const count=q('#dubCount');count.hidden=false;for(const n of ['3','2','1']){count.textContent=n;await new Promise(r=>setTimeout(r,700));}count.hidden=true;q('#dubRec').disabled=false;
-  const chunks=[];recorder=new MediaRecorder(mic);recorder.ondataavailable=e=>e.data.size&&chunks.push(e.data);
-  const v=q('#dubPlayer');v.muted=true;v.currentTime=seg.start;const limit=setTimeout(()=>recorder?.state==='recording'&&recorder.stop(),(seg.end-seg.start+4)*1000);
-  recorder.onstop=async()=>{clearTimeout(limit);v.pause();stopSync();const type=recorder.mimeType||chunks[0]?.type||'audio/webm';recorder=null;q('#dubRec').classList.remove('live');
-   try{audioCtx??=new AudioContext();const blob=new Blob(chunks,{type});const buffer=await audioCtx.decodeAudioData(await blob.arrayBuffer());Object.assign(seg,{blob,buffer,ext:recordingExt(type)});}catch{fail(Error('التسجيل ما انقرأ؛ جرّب مرة ثانية'));}showLine();};
+  if(recorder){recorder.stop();return;}
+  if(countdown){countdown.cancelled=true;return;}
+  const seg=segments[line];fail('');
+  try{stopPlayback();mic??=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:1}});}catch{fail(Error('اسمح للمتصفح باستخدام المايكروفون'));return;}
+  const count=q('#dubCount');countdown={cancelled:false};const cd=countdown;count.hidden=false;
+  for(const n of ['3','2','1']){if(cd.cancelled)break;count.textContent=n;q('#dubRec').textContent='✕ إلغاء ('+n+')';await new Promise(r=>setTimeout(r,700));}
+  count.hidden=true;countdown=null;
+  if(cd.cancelled){closeMic();showLine();status('ألغينا التسجيل. تسجيلك السابق ما تغيّر.');return;}
+  const chunks=[];try{recorder=new MediaRecorder(mic,{audioBitsPerSecond:128000});}catch{recorder=new MediaRecorder(mic);}recorder.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  const v=q('#dubPlayer');v.muted=true;v.currentTime=seg.start;const began=performance.now();const limit=setTimeout(()=>recorder?.state==='recording'&&recorder.stop(),(seg.end-seg.start+4)*1000);
+  recorder.onstop=async()=>{clearTimeout(limit);v.pause();stopSync();const type=recorder.mimeType||chunks[0]?.type||'audio/webm';recorder=null;q('#dubRec').classList.remove('live');closeMic();
+   // A take shorter than half a second is a slip of the finger: the earlier take stays.
+   if(performance.now()-began<500){showLine();status(seg.blob?'التسجيل قصير جدًا؛ خلّينا تسجيلك السابق.':'التسجيل قصير جدًا؛ جرّب مرة ثانية.');return;}
+   try{audioCtx??=new AudioContext();const blob=new Blob(chunks,{type});const buffer=await audioCtx.decodeAudioData(await blob.arrayBuffer());
+    if(seg.blob)seg.prevTake={blob:seg.blob,buffer:seg.buffer,ext:seg.ext};Object.assign(seg,{blob,buffer,ext:recordingExt(type)});}catch{fail(Error('التسجيل ما انقرأ؛ جرّب مرة ثانية'));}showLine();if(seg.prevTake)status('تسجيلك الجديد جاهز. إذا القديم أحسن اضغط «↶ رجّع تسجيلك السابق».');};
   recorder.start();v.play().catch(()=>{});startSync();q('#dubRec').textContent='⏹ إيقاف التسجيل';q('#dubRec').classList.add('live');status('يسجّل… تكلم الحين');
  };
- q('#dubPrev').onclick=()=>{if(recorder)return;stopPlayback();if(line>0){line--;showLine();}};
- q('#dubNext').onclick=()=>{if(recorder)return;stopPlayback();if(line<segments.length-1){line++;showLine();}else go('export');};
- for(const b of content.querySelectorAll('[data-nudge]'))b.onclick=()=>{const seg=segments[line],prev=segments[line-1],next=segments[line+1],d=0.25;
+ // The take before the last one, one tap away (the two swap, so nothing is ever lost).
+ q('#dubPrevTake').onclick=()=>{if(recorder||countdown)return;const seg=segments[line],old=seg.prevTake;if(!old)return;stopPlayback();seg.prevTake=seg.blob?{blob:seg.blob,buffer:seg.buffer,ext:seg.ext}:null;Object.assign(seg,old);showLine();status('رجّعنا تسجيلك السابق ✓ (والجديد محفوظ لو تبي ترجعه)');};
+ q('#dubPrev').onclick=()=>{if(recorder||countdown)return;stopPlayback();if(line>0){line--;showLine();}};
+ q('#dubNext').onclick=()=>{if(recorder||countdown)return;stopPlayback();if(line<segments.length-1){line++;showLine();}else go('export');};
+ for(const b of content.querySelectorAll('[data-nudge]'))b.onclick=()=>{if(recorder||countdown)return;saveUndo('ضبط الوقت');const seg=segments[line],prev=segments[line-1],next=segments[line+1],d=0.25;
   ({'s-':()=>seg.start=Math.max(prev?prev.end:0,seg.start-d),'s+':()=>seg.start=Math.min(seg.end-0.3,seg.start+d),'e-':()=>seg.end=Math.max(seg.start+0.3,seg.end-d),'e+':()=>seg.end=Math.min(next?next.start:Infinity,seg.end+d)})[b.dataset.nudge]();showLine();};
- q('#dubDelete').onclick=()=>{if(segments.length<2)return fail(Error('لازم تبقى جملة وحدة على الأقل'));saveUndo();segments.splice(line,1);line=Math.min(line,segments.length-1);showLine();};
- q('#dubCutDo').onclick=()=>{if(recorder)return;const parts=splitLine(segments[line],splitAt);if(!parts)return;stopPlayback();saveUndo();const had=segments[line].blob;segments.splice(line,1,...parts);showLine();status(had?'قصّينا الجملة لجملتين ✓ سجّل الثنتين من جديد.':'قصّينا الجملة لجملتين ✓');};
+ q('#dubDelete').onclick=()=>{if(segments.length<2)return fail(Error('لازم تبقى جملة وحدة على الأقل'));saveUndo('حذف الجملة');segments.splice(line,1);line=Math.min(line,segments.length-1);showLine();status('حذفنا الجملة. تقدر ترجّعها من «↶ تراجع».');};
+ q('#dubCutDo').onclick=()=>{if(recorder)return;const parts=splitLine(segments[line],splitAt,splitTr);if(!parts)return;stopPlayback();saveUndo('القص');const had=segments[line].blob;segments.splice(line,1,...parts);showLine();status(had?'قصّينا الجملة لجملتين ✓ سجّل الثنتين من جديد.':'قصّينا الجملة لجملتين ✓');};
  q('#dubCutNo').onclick=cancelCut;
  // Undo: every merge, cut, delete or speaker change can be taken back.
  const history=[];
- function saveUndo(){history.push({segments:segments.map(s=>({...s,words:s.words?[...s.words]:s.words})),line});if(history.length>40)history.shift();q('#dubUndo').hidden=false;}
- q('#dubUndo').onclick=()=>{if(recorder)return;const last=history.pop();if(!last)return;stopPlayback();segments=last.segments;line=Math.min(last.line,segments.length-1);q('#dubUndo').hidden=!history.length;showLine();status('رجّعنا آخر تعديل ↶');};
+ function saveUndo(what='آخر تعديل'){history.push({segments:segments.map(s=>({...s,words:s.words?[...s.words]:s.words})),line,what});if(history.length>40)history.shift();undoLabel();}
+ function undoLabel(){const last=history.at(-1);q('#dubUndo').hidden=!last;if(last)q('#dubUndo').textContent='↶ تراجع عن '+last.what;}
+ q('#dubUndo').onclick=()=>{if(recorder)return;const last=history.pop();if(!last)return;stopPlayback();segments=last.segments;line=Math.min(last.line,segments.length-1);undoLabel();showLine();status('رجّعنا '+last.what+' ↶');};
  // Merging: drag a dot onto the dot next to it. A tap on a dot still opens that line.
- function mergeInto(from,to){if(Math.abs(from-to)!==1)return status('افلت النقطة على النقطة اللي جنبها مباشرة عشان تندمج الجملتين.');stopPlayback();saveUndo();const i=Math.min(from,to),had=segments[i].blob||segments[i+1].blob;const merged=mergeLines(segments[i],segments[i+1]);const spk=segments[to].spk||segments[from].spk;if(spk)merged.spk=spk;else delete merged.spk;segments.splice(i,2,merged);line=i;showLine();status(had?'دمجنا الجملتين ✓ سجّل الجملة الجديدة كاملة.':'دمجنا الجملتين ✓');}
+ function mergeInto(from,to){if(Math.abs(from-to)!==1)return status('افلت النقطة على النقطة اللي جنبها مباشرة عشان تندمج الجملتين.');stopPlayback();saveUndo('الدمج');const i=Math.min(from,to),had=segments[i].blob||segments[i+1].blob;const merged=mergeLines(segments[i],segments[i+1]);const spk=segments[to].spk||segments[from].spk;if(spk)merged.spk=spk;else delete merged.spk;segments.splice(i,2,merged);line=i;showLine();status(had?'دمجنا الجملتين ✓ سجّل الجملة الجديدة كاملة.':'دمجنا الجملتين ✓');}
  {const dots=q('#dubDots');let drag=null;
   const target=e=>{const el=document.elementFromPoint(e.clientX,e.clientY)?.closest?.('.dub-dot');return el&&dots.contains(el)?Number(el.dataset.i):null;};
   dots.addEventListener('pointerdown',e=>{const b=e.target.closest('.dub-dot');if(!b||recorder)return;drag={from:Number(b.dataset.i),el:b,x:e.clientX,y:e.clientY,moved:false,over:null};try{dots.setPointerCapture(e.pointerId);}catch{}});
@@ -150,9 +174,9 @@ export function mountDub(content,{onResult}){
    if(e.type==='pointercancel')return;if(!d.moved){if(recorder)return;stopPlayback();line=d.from;showLine();return;}if(to!==null&&to!==d.from)mergeInto(d.from,to);};
   dots.addEventListener('pointerup',end);dots.addEventListener('pointercancel',end);}
  // The speaker colour: tap to move this line to the next character (or a new one).
- q('#dubSpk').onclick=()=>{if(recorder)return;saveUndo();const seg=segments[line];const known=[...new Set(segments.filter(s=>s!==seg&&s.spk).map(s=>s.spk))].sort((a,b)=>a-b);const options=[...known,(known.at(-1)||0)+1];seg.spk=options[(options.indexOf(seg.spk)+1)%options.length];showLine();};
+ q('#dubSpk').onclick=()=>{if(recorder)return;saveUndo('تغيير الشخصية');const seg=segments[line];const known=[...new Set(segments.filter(s=>s!==seg&&s.spk).map(s=>s.spk))].sort((a,b)=>a-b);const options=[...known,(known.at(-1)||0)+1];seg.spk=options[(options.indexOf(seg.spk)+1)%options.length];showLine();};
  q('#dubMerge').onclick=()=>{if(recorder)return;if(!segments[line+1])return fail(Error('هذي آخر جملة؛ ما فيه جملة بعدها'));mergeInto(line+1,line);};
- q('#dubAdd').onclick=()=>{const seg=segments[line],next=segments[line+1],start=seg.end+0.1,end=Math.min(start+3,next?next.start:start+3);if(end-start<0.3)return fail(Error('ما فيه مكان بعد هذي الجملة'));segments.splice(line+1,0,{start,end});line++;showLine();};
+ q('#dubAdd').onclick=()=>{if(recorder||countdown)return;const seg=segments[line],next=segments[line+1],start=seg.end+0.1,end=Math.min(start+3,next?next.start:start+3);if(end-start<0.3)return fail(Error('ما فيه مكان بعد هذي الجملة'));saveUndo('إضافة جملة');segments.splice(line+1,0,{start,end});line++;showLine();};
 
  // Step 5: export.
  function summary(){const n=segments.filter(s=>s.blob).length;q('#dubSummary').textContent=n?'سجّلت '+n+' من '+segments.length+' جملة. اسمع الدبلجة كاملة، وبعدها صدّر الفيديو.':'ما سجلت أي جملة للحين؛ ارجع لخطوة التسجيل.';q('#dubExport').disabled=!n;q('#dubPlayAll').disabled=!stems;status('');}
